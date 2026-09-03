@@ -1,3 +1,4 @@
+import { DEFAULT_LANG } from "../lang";
 import type { Playbook, ResolutionOption } from "../types";
 
 /** Orders above this total cannot be resolved automatically. */
@@ -9,18 +10,25 @@ export const damagedPlaybook: Playbook<"damaged"> = {
     "Damaged item: a replacement when replacement stock exists, otherwise a refund; an order total above EUR 200 must be escalated to a human, never applied; the customer must confirm before it is applied.",
   actionTypes: ["replacement", "refund"],
   toolOrder: ["find_customer", "get_order", "check_resolution_options", "apply_resolution"],
-  options(order) {
+  options(order, _customer, ctx) {
+    const lang = ctx.lang ?? DEFAULT_LANG;
     const requiresEscalation = order.totalEur > DAMAGED_ESCALATION_LIMIT_EUR;
     const escalation = requiresEscalation
       ? {
-          escalationReason: `Order total EUR ${order.totalEur} is above the EUR ${DAMAGED_ESCALATION_LIMIT_EUR} limit for automatic resolution; a human agent has to approve it.`,
+          escalationReason:
+            lang === "tr"
+              ? `Sipariş toplamı EUR ${order.totalEur}, otomatik çözüm için EUR ${DAMAGED_ESCALATION_LIMIT_EUR} sınırının üzerinde; bir insan görevlinin onayı gerekir.`
+              : `Order total EUR ${order.totalEur} is above the EUR ${DAMAGED_ESCALATION_LIMIT_EUR} limit for automatic resolution; a human agent has to approve it.`,
         }
       : {};
     return order.items.map((item): ResolutionOption => {
       if (item.replacementStock > 0) {
         return {
           type: "replacement",
-          label: `Send a replacement ${item.name} (${item.replacementStock} in stock)`,
+          label:
+            lang === "tr"
+              ? `${item.name} için yenisini gönder (stokta ${item.replacementStock})`
+              : `Send a replacement ${item.name} (${item.replacementStock} in stock)`,
           params: { sku: item.sku },
           requiresEscalation,
           ...escalation,
@@ -29,7 +37,7 @@ export const damagedPlaybook: Playbook<"damaged"> = {
       const amountEur = Math.round(item.qty * item.unitPriceEur * 100) / 100;
       return {
         type: "refund",
-        label: `Refund EUR ${amountEur} for ${item.name} (no replacement stock)`,
+        label: lang === "tr" ? `${item.name} için EUR ${amountEur} iade (yedek stok yok)` : `Refund EUR ${amountEur} for ${item.name} (no replacement stock)`,
         params: { sku: item.sku },
         amountEur,
         requiresEscalation,

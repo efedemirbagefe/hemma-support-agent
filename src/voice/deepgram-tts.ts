@@ -13,6 +13,7 @@
  */
 import WebSocket from "ws";
 import type { RawData } from "ws";
+import type { Lang } from "../domain/lang";
 import { lostChunks, MS_PER_CHAR_FLOOR, type TtsEngine, type TtsStream, type TtsStreamEvents } from "./tts";
 import { vendorUrlOverride } from "./vendor-url";
 
@@ -201,12 +202,14 @@ export class DeepgramAuraStream implements TtsStream {
 
 export class DeepgramTts implements TtsEngine {
   readonly name = "deepgram" as const;
+  /** aura-2-thalia-en is an English voice; a Turkish turn skips this engine (session-voice.ts). */
+  readonly languages: readonly Lang[] = ["en"];
   constructor(
     private readonly apiKey: string,
     readonly model: string = DEEPGRAM_TTS_MODEL,
   ) {}
 
-  openStream(events: TtsStreamEvents): TtsStream {
+  openStream(events: TtsStreamEvents, _lang?: Lang): TtsStream {
     return new DeepgramAuraStream(this.apiKey, this.model, events);
   }
 }

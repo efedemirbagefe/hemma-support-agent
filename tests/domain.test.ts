@@ -3,8 +3,10 @@ import { afterEach, describe, test } from "node:test";
 import type { AfterToolCallContext, BeforeToolCallContext } from "@earendil-works/pi-agent-core";
 import { wrongItemPlaybook } from "../examples/scenarios/wrong-item";
 import {
+  DEMO_LINES,
   DEMO_STEPS,
   applyStatus,
+  demoSteps,
   formatReport,
   lintTurn,
   mergeToolEvent,
@@ -18,16 +20,17 @@ import {
 } from "../src/agent/demo-script";
 import { buildStateBlock, buildSystemPrompt } from "../src/agent/prompt";
 import { hasDash, sanitizeSpoken } from "../src/agent/speech";
-import { resolveAction } from "../src/domain/actions";
-import { addDays, daysBetween, humanDate, isoDate, today, weekdayName } from "../src/domain/clock";
+import { confirmationAsk, resolveAction, summarize } from "../src/domain/actions";
+import { MONTH_NAMES, WEEKDAY_NAMES, addDays, daysBetween, humanDate, isoDate, monthName, today, weekdayName } from "../src/domain/clock";
 import { findCustomer, findOrder } from "../src/domain/data";
-import { applyResolutionBlockReason, isAffirmative, makeAfterToolCall, makeBeforeToolCall } from "../src/domain/guards";
+import { AFFIRMATIVE_PHRASES, NEGATION_PHRASES, applyResolutionBlockReason, isAffirmative, makeAfterToolCall, makeBeforeToolCall } from "../src/domain/guards";
+import { isLang, parseLang } from "../src/domain/lang";
 import { damagedPlaybook } from "../src/domain/policies/damaged";
 import { getPlaybook, isScenario, playbooks, playbooksForAction, scenarios } from "../src/domain/policies/index";
 import { compensationFor } from "../src/domain/policies/late";
 import { deliverySlots } from "../src/domain/policies/reschedule";
 import { Session, actionKey, stableStringify, type SessionSnapshot } from "../src/domain/session";
-import { ESCALATION_NEXT_STEP, createTools } from "../src/domain/tools";
+import { ESCALATION_NEXT_STEP, ESCALATION_NEXT_STEP_TR, createTools } from "../src/domain/tools";
 import type { Customer, Playbook, ResolutionOption } from "../src/domain/types";
 
 type Json = Record<string, any>;
@@ -1011,6 +1014,7 @@ describe("demo script evaluators", () => {
   function snap(over: Partial<SessionSnapshot> = {}): SessionSnapshot {
     return {
       id: "s",
+      lang: "en",
       customer: { id: "CUST-001", ref: "HM-2201", name: "Anna Weber", phone: "+49 30 1234567", tier: "vip" },
       proposals: [],
       applied: [],
@@ -1199,5 +1203,288 @@ describe("demo script evaluators", () => {
     assert.equal(report.steps[7].verdict, "FAIL");
     assert.match(report.steps[7].notes.join(" "), /not exercised/);
     assert.match(formatReport(report), /result: FAIL \(2 failed/);
+  });
+});
+
+// ---------------------------------------------------------------- language: Turkish
+
+describe("language", () => {
+  test("parseLang accepts en and tr in any case or locale form, rejects the rest", () => {
+    assert.equal(parseLang("tr"), "tr");
+    assert.equal(parseLang(" TR "), "tr");
+    assert.equal(parseLang("tr-TR"), "tr");
+    assert.equal(parseLang("en_US"), "en");
+    assert.equal(parseLang("de"), undefined);
+    assert.equal(parseLang(""), undefined);
+    assert.equal(parseLang(null), undefined);
+    assert.equal(parseLang(7), undefined);
+    assert.equal(isLang("tr"), true);
+    assert.equal(isLang("turkish"), false);
+  });
+  test("humanDate, weekdayName and monthName take the language: Turkish names, same word order", () => {
+    assert.equal(humanDate("2026-09-04", "tr"), "Cuma 4 Eylül 2026");
+    assert.equal(humanDate("2026-09-08", "tr"), "Salı 8 Eylül 2026");
+    assert.equal(humanDate(today(), "tr"), "Perşembe 3 Eylül 2026");
+    assert.equal(humanDate("2026-08-30", "tr"), "Pazar 30 Ağustos 2026");
+    assert.equal(humanDate("2026-09-04", "en"), "Friday 4 September 2026");
+    assert.equal(humanDate("2026-09-04"), "Friday 4 September 2026", "English stays the default");
+    assert.equal(weekdayName(today(), "tr"), "Perşembe");
+    assert.equal(weekdayName(today()), "Thursday");
+    assert.equal(monthName("2026-09-04", "tr"), "Eylül");
+    assert.equal(monthName("2026-09-04"), "September");
+    assert.equal(new Set(WEEKDAY_NAMES.tr).size, 7);
+    assert.equal(new Set(MONTH_NAMES.tr).size, 12);
+    assert.deepEqual([...WEEKDAY_NAMES.tr], ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"]);
+  });
+  test("delivery slots carry Turkish weekday and label in a Turkish session", () => {
+    const slots = deliverySlots(today(), "tr");
+    assert.equal(slots.length, 12);
+    assert.equal(slots[0].date, "2026-09-04");
+    assert.equal(slots[0].weekday, "Cuma");
+    assert.equal(slots[0].label, "Cuma 4 Eylül 2026");
+    assert.ok(!slots.some((s) => s.weekday === "Pazar"), "Sunday is still skipped");
+    assert.equal(deliverySlots(today())[0].label, "Friday 4 September 2026");
+  });
+  test("Session carries lang: default en, option tr, kept by reset, in the snapshot", () => {
+    assert.equal(new Session().lang, "en");
+    assert.equal(new Session().snapshot().lang, "en");
+    const s = new Session({ lang: "tr" });
+    assert.equal(s.lang, "tr");
+    assert.equal(s.snapshot().lang, "tr");
+    s.reset();
+    assert.equal(s.lang, "tr", "reset keeps the language");
+  });
+  test("Turkish affirmatives and negations from the brief are in the guard lists", () => {
+    for (const a of ["olur", "evet lütfen", "onayla", "kabul"]) assert.ok((AFFIRMATIVE_PHRASES as readonly string[]).includes(a), a);
+    for (const n of ["hayır", "istemiyorum", "olmaz", "iptal", "dur", "bekle"]) assert.ok((NEGATION_PHRASES as readonly string[]).includes(n), n);
+    for (const u of ["Olur.", "olur, devam edin", "Evet lütfen", "Onayla", "kabul ediyorum", "Kabul.", "Tamam, olur", "Evet, devam edin."]) {
+      assert.equal(isAffirmative(u), true, `expected affirmative: ${u}`);
+    }
+    for (const u of [
+      "hayır",
+      "Hayır, istemiyorum",
+      "olmaz",
+      "iptal",
+      "İptal edin lütfen",
+      "evet ama iptal",
+      "dur",
+      "Dur, bekle",
+      "bekle",
+      "olur mu?",
+      "Onaylıyor musunuz?",
+      "Pardon, işlem gerçekleşti mi? Garanti olsun diye Cuma sabahını tekrar ayarlayın.",
+      "ne olur ne olmaz",
+    ]) {
+      assert.equal(isAffirmative(u), false, `expected NOT affirmative: ${u}`);
+    }
+  });
+  test("tool results carry Turkish labels in a Turkish session; money, ids and product names stay", async () => {
+    const { session, call } = harness(new Session({ lang: "tr" }));
+    const found = await call("find_customer", { customerRef: "HM-2201" });
+    assert.equal(found.orders[0].promisedDeliveryDateLabel, "Salı 8 Eylül 2026");
+    assert.equal(found.orders[1].deliveredAtLabel, "Cuma 28 Ağustos 2026");
+    assert.deepEqual(found.orders[1].items, ["Arc floor lamp, brass"], "product names stay as in the data");
+    assert.equal(found.orders[0].totalEur, 89);
+
+    const order = await call("get_order", { orderId: "HM-1042" });
+    assert.equal(order.todayLabel, "Perşembe 3 Eylül 2026");
+    assert.equal(order.order.promisedDeliveryDateLabel, "Salı 8 Eylül 2026");
+    assert.equal(order.order.placedAtLabel, "Salı 1 Eylül 2026");
+    assert.equal(order.order.currency, "EUR");
+
+    const slots = await call("get_delivery_slots", { orderId: "HM-1042" });
+    assert.equal(slots.currentDeliveryDateLabel, "Salı 8 Eylül 2026");
+    assert.equal(slots.slots[0].label, "Cuma 4 Eylül 2026");
+    assert.equal(slots.slots[0].weekday, "Cuma");
+    const shipped = await call("get_delivery_slots", { orderId: "HM-1010" });
+    assert.match(shipped.error, /HM-1010 numaralı sipariş zaten kargoya verildi/);
+
+    const options = await call("check_resolution_options", { orderId: "HM-1042", issue: "reschedule" });
+    assert.equal(options.asOfLabel, "Perşembe 3 Eylül 2026");
+    assert.equal(options.options[0].label, "Cuma 4 Eylül 2026, sabah 09-13");
+    assert.deepEqual(options.options[0].params, { date: "2026-09-04", window: "09-13" }, "params are language neutral");
+
+    const morning = { orderId: "HM-1042", type: "reschedule", params: { date: "2026-09-04", window: "09-13" } };
+    const proposal = await call("apply_resolution", { ...morning, customerConfirmed: false });
+    assert.equal(proposal.status, "NEEDS_CONFIRMATION");
+    assert.equal(proposal.summary, "HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, sabah 9 ile 1 arasına alalım.");
+    assert.equal(proposal.ask, `${proposal.summary} Onaylıyor musunuz?`);
+    assert.equal(proposal.dateLabel, "Cuma 4 Eylül 2026");
+    assert.equal(hasDash(proposal.ask), false);
+    // The guard's block reason carries the same Turkish sentence.
+    const reason = applyResolutionBlockReason(session, { ...morning, customerConfirmed: true } as never);
+    assert.match(reason ?? "", /^NEEDS_CONFIRMATION: .*Ask them: "HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, sabah 9 ile 1 arasına alalım\. Onaylıyor musunuz\?"/);
+    session.setLastUserUtterance("Evet, devam edin.");
+    const applied = await call("apply_resolution", { ...morning, customerConfirmed: true });
+    assert.equal(applied.status, "APPLIED");
+    assert.equal(applied.dateLabel, "Cuma 4 Eylül 2026");
+    assert.match(applied.receipt, /^RCP-1042-001$/, "receipt format is language neutral");
+    session.setLastUserUtterance("Garanti olsun diye tekrar ayarlayın.");
+    const again = await call("apply_resolution", { ...morning, customerConfirmed: true });
+    assert.equal(again.status, "ALREADY_APPLIED");
+    assert.equal(again.dateLabel, "Cuma 4 Eylül 2026");
+
+    const damaged = await call("check_resolution_options", { orderId: "HM-0977", issue: "damaged" });
+    assert.equal(damaged.options[0].label, "Arc floor lamp, brass için yenisini gönder (stokta 3)");
+    assert.match(damaged.options[0].escalationReason, /EUR 240, otomatik çözüm için EUR 200 sınırının üzerinde/);
+    const late = await call("check_resolution_options", { orderId: "HM-1010", issue: "late" });
+    assert.equal(late.promisedDeliveryDateLabel, "Pazar 30 Ağustos 2026");
+    assert.match(late.options[0].label, /^HM-1010 numaralı sipariş için EUR 15 telafi, söz verilen teslimat Pazar 30 Ağustos 2026, Perşembe 3 Eylül 2026 itibarıyla 4 gün gecikmiş$/);
+    assert.doesNotMatch(late.options[0].label, /2026-08-30/);
+    process.env.NOW = "2026-09-01";
+    const early = await call("check_resolution_options", { orderId: "HM-1010", issue: "late" });
+    assert.match(early.note, /standart müşteriler 4 günlük gecikmede/);
+    delete process.env.NOW;
+
+    const escalated = await call("escalate_case", { orderId: "HM-0977", reason: "Damaged item over EUR 200" });
+    assert.equal(escalated.nextStep, ESCALATION_NEXT_STEP_TR);
+    assert.match(escalated.caseId, /^CASE-0977-01$/);
+    assert.equal((await call("escalate_case", { orderId: "HM-0977", reason: "again" })).nextStep, ESCALATION_NEXT_STEP_TR);
+    // Same calls in an English session are unchanged.
+    const en = harness();
+    const enSlots = await en.call("get_delivery_slots", { orderId: "HM-1042" });
+    assert.equal(enSlots.slots[0].label, "Friday 4 September 2026");
+    assert.equal((await en.call("escalate_case", { orderId: "HM-0977", reason: "x" })).nextStep, ESCALATION_NEXT_STEP);
+  });
+  test("summaries per type in Turkish: refund, replacement and compensation keep EUR amounts and ids", () => {
+    const s = new Session();
+    const vase = findOrder(s.store, "HM-1031")!;
+    const cover = findOrder(s.store, "HM-1042")!;
+    const table = findOrder(s.store, "HM-1010")!;
+    assert.equal(
+      summarize({ type: "refund", label: "", params: { sku: "VASE-CER-SET" }, requiresEscalation: false, amountEur: 45 }, vase, "tr"),
+      "HM-1031 numaralı siparişteki Ceramic vase set için EUR 45 iade edelim.",
+    );
+    assert.equal(
+      summarize({ type: "replacement", label: "", params: { sku: "SOFA-LIN-GRY" }, requiresEscalation: false }, cover, "tr"),
+      "HM-1042 numaralı sipariş için Linen sofa cover, grey ürününü ücretsiz olarak yeniden gönderelim.",
+    );
+    assert.equal(
+      summarize({ type: "compensation", label: "", params: { amountEur: 15 }, requiresEscalation: false, amountEur: 15 }, table, "tr"),
+      "HM-1010 numaralı siparişin geç teslimatı için EUR 15 tutarında telafi tanımlayalım.",
+    );
+    assert.equal(
+      summarize({ type: "reschedule", label: "", params: { date: "2026-09-04", window: "13-18" }, requiresEscalation: false }, cover, "tr"),
+      "HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, öğleden sonra 1 ile 6 arasına alalım.",
+    );
+    assert.equal(summarize({ type: "refund", label: "", params: { sku: "VASE-CER-SET" }, requiresEscalation: false, amountEur: 45 }, vase), "Refund EUR 45 for Ceramic vase set on order HM-1031.");
+    assert.equal(confirmationAsk("X.", "tr"), "X. Onaylıyor musunuz?");
+    assert.equal(confirmationAsk("X."), "X. Shall I go ahead?");
+  });
+  test("the Turkish prompt: persona and rules in Turkish, formal siz, no dashes, tools and status tags kept", async () => {
+    const { session, call } = harness(new Session({ lang: "tr" }));
+    const p = buildSystemPrompt(session);
+    assert.match(p, /^Hemma'nın telefon destek görevlisisiniz\./);
+    assert.match(p, /Bugün Perşembe 3 Eylül 2026\./);
+    assert.match(p, /müşteriye her zaman siz diye hitap edin/);
+    assert.match(p, /^Üslup: /m);
+    assert.match(p, /^Kurallar: /m);
+    assert.match(p, /Haftanın gününü asla kendiniz hesaplamayın/);
+    assert.match(p, /Hiçbir tire kullanmayın/);
+    assert.match(p, /apply_resolution .*customerConfirmed false/);
+    assert.match(p, /ALREADY_APPLIED/);
+    assert.match(p, /escalate_case/);
+    assert.match(p, /^Canlı durum:$/m);
+    assert.match(p, /^Müşteri: henüz tanınmadı$/m);
+    assert.match(p, /^Playbook'lar/m);
+    for (const pb of playbooks) assert.match(p, new RegExp(`^${pb.scenario}: `, "m"));
+    assert.equal(hasDash(p), false, "no dash anywhere in the Turkish prompt");
+    assert.doesNotMatch(p, /Today is|Rules:|Style:|Live state:/, "no English scaffolding left");
+    assert.ok(p.length < 6000, `prompt is ${p.length} chars`);
+    await call("find_customer", { customerRef: "HM-2201" });
+    const block = buildStateBlock(session);
+    assert.match(block, /^Müşteri: Anna Weber \(müşteri no HM-2201, VIP, telefon \+49 30 1234567\)$/m);
+    assert.match(block, /Bilinen siparişler \(en yeni önce\): HM-1042 \(Linen sofa cover, grey\) hazırlanıyor, söz verilen teslimat Salı 8 Eylül 2026, EUR 89; HM-0977 \(Arc floor lamp, brass\) teslim edildi Cuma 28 Ağustos 2026, EUR 240/);
+    assert.doesNotMatch(block, /2026-09-08/, "no bare ISO dates");
+    await call("apply_resolution", { orderId: "HM-1042", type: "reschedule", params: { date: "2026-09-04", window: "09-13" }, customerConfirmed: false });
+    assert.match(buildStateBlock(session), /Bekleyen işlem \(açık bir evet bekliyor\): HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, sabah 9 ile 1 arasına alalım\./);
+    session.setLastUserUtterance("evet");
+    await call("apply_resolution", { orderId: "HM-1042", type: "reschedule", params: { date: "2026-09-04", window: "09-13" }, customerConfirmed: true });
+    assert.match(buildStateBlock(session), /Uygulanan işlemler: HM-1042 numaralı siparişin teslimatını .* \(fiş RCP-1042-001\)/);
+    assert.match(buildStateBlock(session), /hazırlanıyor, söz verilen teslimat Cuma 4 Eylül 2026 09-13, EUR 89/);
+    await call("escalate_case", { orderId: "HM-0977", reason: "damaged" });
+    assert.match(buildStateBlock(session), /Açık kayıtlar: CASE-0977-01, HM-0977 için: damaged/);
+    // Switching the session language re-renders the prompt in English on the next build.
+    session.lang = "en";
+    assert.match(buildSystemPrompt(session), /Today is Thursday 3 September 2026\./);
+  });
+  test("demo script: Turkish lines, bilingual hints, Turkish weekday lint", async () => {
+    const tr = demoSteps("tr");
+    assert.deepEqual(
+      tr.filter((s) => s.say).map((s) => s.say),
+      [DEMO_LINES.tr.step1, DEMO_LINES.tr.step3, DEMO_LINES.tr.step5, DEMO_LINES.tr.step6, DEMO_LINES.tr.step7, DEMO_LINES.tr.step8],
+    );
+    assert.equal(DEMO_STEPS[0].say, DEMO_LINES.en.step1);
+    assert.equal(isAffirmative(DEMO_LINES.tr.step7), true, "step 7 must be a yes for the guard");
+    assert.equal(isAffirmative(DEMO_LINES.tr.step8), false, "step 8 must not be a yes");
+    assert.equal(isAffirmative(DEMO_LINES.en.step7), true);
+    assert.equal(isAffirmative(DEMO_LINES.en.step8), false);
+    for (const line of Object.values(DEMO_LINES.tr)) assert.equal(hasDash(line), false, line);
+    assert.deepEqual(weekdayMismatches("Teslimatı Cuma 4 Eylül 2026 sabahına aldım."), []);
+    assert.deepEqual(weekdayMismatches("4 Eylül Cuma günü, 8 Eylül 2026 Salı"), []);
+    assert.deepEqual(weekdayMismatches("Cumartesi 4 Eylül olur mu?"), ['"Cumartesi 4 Eylül" is a Cuma']);
+    assert.deepEqual(weekdayMismatches("Siparişiniz 8 Eylül Pazartesi geliyor."), ['"8 Eylül Pazartesi" is a Salı']);
+    assert.deepEqual(weekdayMismatches("Çarşamba 9 Eylül"), []);
+    assert.deepEqual(weekdayMismatches("Perşembe 4 Eylül"), ['"Perşembe 4 Eylül" is a Cuma']);
+    const fillerNotes = lintTurn({ step: 1, user: "u", extra: false, text: "Bir saniye, hemen bakıyorum. Tamam.", tools: [], firstTokenMs: 1, totalMs: 2, errors: [] }, { textMode: true });
+    assert.ok(fillerNotes.some((n) => /filler spoken in a text turn/.test(n)));
+    // A Turkish run of the scripted happy path passes the same evaluators.
+    const lines: string[] = [];
+    const script: Array<Partial<TurnRecord>> = [
+      { text: "Merhaba Anna. Kanepe kılıfınız, HM-1042, Salı 8 Eylül için hazırlanıyor.", tools: [{ name: "find_customer", phase: "end" }, { name: "get_order", phase: "end", args: { orderId: "HM-1042" } }] },
+      {
+        text: "Lamba için üzgünüm. 200 euronun üzerinde olduğu için bir meslektaşımın onayı gerekiyor; kayıt numaranız CASE-0977-01, bir iş günü içinde sizi arayacaklar.",
+        tools: [
+          { name: "get_order", phase: "end", args: { orderId: "HM-0977" } },
+          { name: "check_resolution_options", phase: "end", args: { orderId: "HM-0977", issue: "damaged" } },
+          { name: "escalate_case", phase: "end", args: { orderId: "HM-0977" }, detail: '{"status":"CREATED","caseId":"CASE-0977-01"}' },
+        ],
+        state: { id: "s", lang: "tr", proposals: [], applied: [], cases: [{ id: "CASE-0977-01", orderId: "HM-0977", reason: "damaged", details: {}, createdAt: 1 }], toolLog: [], lastUserUtterance: "", utteranceSeq: 2 },
+      },
+      { text: "Cuma 4 Eylül için sabah ve öğleden sonra saatleri var. Hangisini istersiniz?", tools: [{ name: "get_delivery_slots", phase: "end", args: { orderId: "HM-1042" } }] },
+      {
+        text: "HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, sabah 9 ile 1 arasına alalım. Onaylıyor musunuz?",
+        tools: [{ name: "apply_resolution", phase: "blocked", args: { orderId: "HM-1042" }, detail: "NEEDS_CONFIRMATION: x" }],
+        state: {
+          id: "s",
+          lang: "tr",
+          proposals: [],
+          applied: [],
+          cases: [],
+          toolLog: [],
+          lastUserUtterance: "",
+          utteranceSeq: 4,
+          pending: { key: "k", type: "reschedule", orderId: "HM-1042", params: { date: "2026-09-04", window: "09-13" }, summary: "x", proposedAt: 1, proposedTurn: 1 },
+        },
+      },
+      {
+        text: "Tamamdır, fiş numaranız RCP-1042-001.",
+        tools: [{ name: "apply_resolution", phase: "end", args: { orderId: "HM-1042" }, detail: '{"status":"APPLIED","receipt":"RCP-1042-001"}' }],
+        state: { id: "s", lang: "tr", proposals: [], applied: [{ key: "k", type: "reschedule", orderId: "HM-1042", params: { date: "2026-09-04", window: "09-13" }, appliedAt: 1, receipt: "RCP-1042-001" }], cases: [], toolLog: [], lastUserUtterance: "", utteranceSeq: 5 },
+      },
+      {
+        text: "İşlem zaten yapıldı, fiş numarası RCP-1042-001.",
+        tools: [{ name: "apply_resolution", phase: "blocked", args: { orderId: "HM-1042" }, detail: "ALREADY_APPLIED: done (receipt RCP-1042-001)" }],
+        state: { id: "s", lang: "tr", proposals: [], applied: [{ key: "k", type: "reschedule", orderId: "HM-1042", params: { date: "2026-09-04", window: "09-13" }, appliedAt: 1, receipt: "RCP-1042-001" }], cases: [], toolLog: [], lastUserUtterance: "", utteranceSeq: 6 },
+      },
+    ];
+    const base = { id: "s", lang: "tr" as const, customer: { id: "CUST-001", ref: "HM-2201", name: "Anna Weber", phone: "+49 30 1234567", tier: "vip" as const }, proposals: [], applied: [], cases: [], toolLog: [], lastUserUtterance: "", utteranceSeq: 1 };
+    const report = await runDemo({
+      lang: "tr",
+      textMode: true,
+      sendTurn: async (text, step, extra) => {
+        lines.push(text);
+        const next = script.shift();
+        if (!next) throw new Error(`script exhausted at "${text}"`);
+        const state = next.state ? { ...base, ...next.state } : base;
+        return { step, user: text, extra, text: "", tools: [], firstTokenMs: 400, totalMs: 900, errors: [], ...next, state };
+      },
+    });
+    assert.deepEqual(lines, [DEMO_LINES.tr.step1, DEMO_LINES.tr.step3, DEMO_LINES.tr.step5, DEMO_LINES.tr.step6, DEMO_LINES.tr.step7, DEMO_LINES.tr.step8]);
+    assert.deepEqual(
+      report.steps.map((s) => `${s.n}:${s.verdict}`),
+      ["1:PASS", "2:SKIP", "3:PASS", "4:PASS", "5:PASS", "6:PASS", "7:PASS", "8:PASS"],
+      report.steps.map((s) => `${s.n} ${s.verdict} ${s.notes.join("; ")}`).join("\n"),
+    );
   });
 });

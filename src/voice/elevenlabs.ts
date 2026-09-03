@@ -8,6 +8,7 @@
  * connect cost hides behind the model's time-to-first-token.
  */
 import WebSocket from "ws";
+import { DEFAULT_LANG, type Lang } from "../domain/lang";
 import { lostChunks, MS_PER_CHAR_FLOOR, type TtsEngine, type TtsStream, type TtsStreamEvents } from "./tts";
 import { vendorUrlOverride } from "./vendor-url";
 
@@ -36,13 +37,20 @@ export interface TtsVoiceSettings {
 
 const DEFAULT_VOICE_SETTINGS: TtsVoiceSettings = { stability: 0.5, similarity_boost: 0.8, use_speaker_boost: false };
 
-export function elevenLabsUrl(voiceId: string): string {
+/**
+ * Stream URL for the voice. For Turkish the language is enforced with `language_code=tr`
+ * (flash v2.5 supports it) so a short sentence or a bare number is not read in English.
+ * Measured 2026-09-03 (scratch/vendor-el-ws-tr.ts): the Turkish greeting, 114 chars, gave first
+ * audio after 424 ms and 7.2 s of speech that Deepgram nova-2 tr read back almost verbatim.
+ */
+export function elevenLabsUrl(voiceId: string, lang: Lang = DEFAULT_LANG): string {
   // Test hook: ELEVENLABS_WS_URL points the client at a mock server (loopback, or any host with
   // ALLOW_VENDOR_URL_OVERRIDE=1; see vendor-url.ts). Production uses the real host.
   const base = vendorUrlOverride("ELEVENLABS_WS_URL") ?? "wss://api.elevenlabs.io";
   return (
     `${base}/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream-input` +
-    `?model_id=${ELEVENLABS_MODEL_ID}&output_format=pcm_16000&inactivity_timeout=${ELEVENLABS_INACTIVITY_TIMEOUT_S}`
+    `?model_id=${ELEVENLABS_MODEL_ID}&output_format=pcm_16000&inactivity_timeout=${ELEVENLABS_INACTIVITY_TIMEOUT_S}` +
+    (lang === "en" ? "" : `&language_code=${lang}`)
   );
 }
 
@@ -69,9 +77,10 @@ export class ElevenLabsStream implements TtsStream {
     voiceId: string,
     voiceSettings: TtsVoiceSettings,
     private readonly events: TtsStreamEvents,
+    lang: Lang = DEFAULT_LANG,
   ) {
     this.id = `tts${++streamSeq}`;
-    this.ws = new WebSocket(elevenLabsUrl(voiceId), { headers: { "xi-api-key": apiKey } });
+    this.ws = new WebSocket(elevenLabsUrl(voiceId, lang), { headers: { "xi-api-key": apiKey } });
     this.ws.on("open", () => {
       if (this._cancelled) return;
       this.ready = true;
@@ -229,6 +238,8 @@ export class ElevenLabsStream implements TtsStream {
 
 export class ElevenLabsTts implements TtsEngine {
   readonly name = "elevenlabs" as const;
+  /** flash v2.5 speaks both with the same voice; Turkish gets language_code=tr on the socket URL. */
+  readonly languages: readonly Lang[] = ["en", "tr"];
   readonly voiceId: string;
   constructor(
     private readonly apiKey: string,
@@ -238,7 +249,7 @@ export class ElevenLabsTts implements TtsEngine {
     this.voiceId = voiceId && voiceId.trim() ? voiceId.trim() : DEFAULT_VOICE_ID;
   }
 
-  openStream(events: TtsStreamEvents): TtsStream {
-    return new ElevenLabsStream(this.apiKey, this.voiceId, this.voiceSettings, events);
+  openStream(events: TtsStreamEvents, lang: Lang = DEFAULT_LANG): TtsStream {
+    return new ElevenLabsStream(this.apiKey, this.voiceId, this.voiceSettings, events, lang);
   }
 }

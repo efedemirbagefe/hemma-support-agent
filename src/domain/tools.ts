@@ -1,9 +1,10 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type, type Static, type TLiteral, type TObject, type TString, type TUnion } from "@sinclair/typebox";
-import { applyPending, dateFields, delayDaysFor, optionsFor, propose, resolveAction } from "./actions";
+import { applyPending, confirmationAsk, dateFields, delayDaysFor, optionsFor, propose, resolveAction } from "./actions";
 import { humanDate, isoDate, today } from "./clock";
 import { customerForOrder, findCustomer, findOrder, ordersForCustomer } from "./data";
 import { confirmationVerdict, type ConfirmationVerdict } from "./guards";
+import { DEFAULT_LANG, type Lang } from "./lang";
 import { isScenario, playbooks, scenariosOf, type Scenario } from "./policies/index";
 import { deliverySlots, rescheduleBlockedReason } from "./policies/reschedule";
 import { actionKey, type Session } from "./session";
@@ -20,6 +21,11 @@ export const TOOL_NAMES = [
 
 /** What the customer is told after escalate_case: who follows up and when. Data, not prompt. */
 export const ESCALATION_NEXT_STEP = "A colleague reviews the case and calls the customer back within one business day.";
+export const ESCALATION_NEXT_STEP_TR = "Bir meslektaşımız kaydı inceler ve bir iş günü içinde müşteriyi geri arar.";
+
+export function escalationNextStep(lang: Lang = DEFAULT_LANG): string {
+  return lang === "tr" ? ESCALATION_NEXT_STEP_TR : ESCALATION_NEXT_STEP;
+}
 
 const FindCustomerParams = Type.Object({
   phone: Type.Optional(Type.String({ description: "Customer phone number in any format" })),
@@ -91,7 +97,7 @@ export function maybeFail(tool: string, params: unknown): void {
 }
 
 /** Order line for find_customer: enough for the model to match "the lamp" to an order without asking. */
-function orderSummary(order: Order) {
+function orderSummary(order: Order, lang: Lang) {
   return {
     id: order.id,
     status: order.status,
@@ -99,15 +105,15 @@ function orderSummary(order: Order) {
     totalEur: order.totalEur,
     placedAt: order.placedAt,
     promisedDeliveryDate: order.promisedDeliveryDate,
-    promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate),
-    ...(order.deliveredAt ? { deliveredAt: order.deliveredAt, deliveredAtLabel: humanDate(order.deliveredAt) } : {}),
+    promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate, lang),
+    ...(order.deliveredAt ? { deliveredAt: order.deliveredAt, deliveredAtLabel: humanDate(order.deliveredAt, lang) } : {}),
   };
 }
 
-export function slotsForOrder(order: Order): { slots: DeliverySlot[]; error?: string } {
-  const error = rescheduleBlockedReason(order);
+export function slotsForOrder(order: Order, lang: Lang = DEFAULT_LANG): { slots: DeliverySlot[]; error?: string } {
+  const error = rescheduleBlockedReason(order, lang);
   if (error) return { slots: [], error };
-  return { slots: deliverySlots(today()) };
+  return { slots: deliverySlots(today(), lang) };
 }
 
 export function createTools(session: Session): AgentTool[] {
@@ -129,7 +135,7 @@ export function createTools(session: Session): AgentTool[] {
       const orders = ordersForCustomer(session.store, customer.id)
         .slice()
         .sort((a, b) => (a.placedAt < b.placedAt ? 1 : -1))
-        .map(orderSummary);
+        .map((o) => orderSummary(o, session.lang));
       return result({
         found: true,
         customer: { id: customer.id, ref: customer.ref, name: customer.name, tier: customer.tier },
@@ -152,18 +158,19 @@ export function createTools(session: Session): AgentTool[] {
       const customer = customerForOrder(session.store, order);
       const delayDays = delayDaysFor(order);
       const now = today();
+      const lang = session.lang;
       return result({
         found: true,
         today: isoDate(now),
-        todayLabel: humanDate(now),
+        todayLabel: humanDate(now, lang),
         order: {
           ...order,
           currency: "EUR",
           customerName: customer?.name,
           customerTier: customer?.tier,
-          placedAtLabel: humanDate(order.placedAt),
-          promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate),
-          ...(order.deliveredAt ? { deliveredAtLabel: humanDate(order.deliveredAt) } : {}),
+          placedAtLabel: humanDate(order.placedAt, lang),
+          promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate, lang),
+          ...(order.deliveredAt ? { deliveredAtLabel: humanDate(order.deliveredAt, lang) } : {}),
           delayDays,
           isLate: delayDays > 0,
         },
@@ -193,9 +200,9 @@ export function createTools(session: Session): AgentTool[] {
         issue: params.issue,
         delayDays: res.delayDays,
         promisedDeliveryDate: order.promisedDeliveryDate,
-        promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate),
+        promisedDeliveryDateLabel: humanDate(order.promisedDeliveryDate, session.lang),
         asOf: isoDate(now),
-        asOfLabel: humanDate(now),
+        asOfLabel: humanDate(now, session.lang),
         customerTier: res.customer.tier,
         options: res.options,
         escalationRequired: res.escalationRequired,
@@ -215,13 +222,13 @@ export function createTools(session: Session): AgentTool[] {
       const order = findOrder(session.store, params.orderId);
       if (!order) return result({ found: false, message: `No order ${params.orderId}.`, slots: [] });
       session.activeOrderId = order.id;
-      const { slots, error } = slotsForOrder(order);
+      const { slots, error } = slotsForOrder(order, session.lang);
       if (error) return result({ found: true, orderId: order.id, error, slots: [] });
       return result({
         found: true,
         orderId: order.id,
         currentDeliveryDate: order.promisedDeliveryDate,
-        currentDeliveryDateLabel: humanDate(order.promisedDeliveryDate),
+        currentDeliveryDateLabel: humanDate(order.promisedDeliveryDate, session.lang),
         slots,
       });
     },
@@ -240,7 +247,7 @@ export function createTools(session: Session): AgentTool[] {
         return result({ status: "INVALID" as ApplyStatus, reason: resolved.reason });
       }
       const { order, option, key, params: norm } = resolved;
-      const dates = dateFields(option.type, norm);
+      const dates = dateFields(option.type, norm, session.lang);
       if (option.requiresEscalation) {
         return result({
           status: "ESCALATION_REQUIRED" as ApplyStatus,
@@ -265,7 +272,7 @@ export function createTools(session: Session): AgentTool[] {
         return result({
           status: "NEEDS_CONFIRMATION" as ApplyStatus,
           summary: pending.summary,
-          ask: `${pending.summary} Shall I go ahead?`,
+          ask: confirmationAsk(pending.summary, session.lang),
           why: verdict.why,
           key,
           ...dates,
@@ -291,7 +298,7 @@ export function createTools(session: Session): AgentTool[] {
       const orderId = order.id;
       const existing = session.cases.find((c) => c.orderId === orderId);
       if (existing) {
-        return result({ status: "ALREADY_OPEN", caseId: existing.id, orderId: existing.orderId, reason: existing.reason, nextStep: ESCALATION_NEXT_STEP });
+        return result({ status: "ALREADY_OPEN", caseId: existing.id, orderId: existing.orderId, reason: existing.reason, nextStep: escalationNextStep(session.lang) });
       }
       const created: Case = {
         id: `CASE-${orderId.replace(/^HM-/, "")}-${String(session.cases.length + 1).padStart(2, "0")}`,
@@ -301,7 +308,7 @@ export function createTools(session: Session): AgentTool[] {
         createdAt: Date.now(),
       };
       session.cases.push(created);
-      return result({ status: "CREATED", caseId: created.id, orderId, reason: created.reason, nextStep: ESCALATION_NEXT_STEP });
+      return result({ status: "CREATED", caseId: created.id, orderId, reason: created.reason, nextStep: escalationNextStep(session.lang) });
     },
   };
 

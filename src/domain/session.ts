@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createStore } from "./data";
+import { DEFAULT_LANG, type Lang } from "./lang";
 import { assertRegistry, playbooks as livePlaybooks } from "./policies/index";
 import type { ActionType, AppliedRecord, Case, Customer, DataStore, PendingAction, Playbook, ToolLogEntry } from "./types";
 
@@ -24,6 +25,8 @@ export function actionKey(type: ActionType, orderId: string, params: Record<stri
 
 export interface SessionSnapshot {
   id: string;
+  /** Language the session is served in: tool labels, spoken summaries, the prompt. */
+  lang: Lang;
   customer?: Customer;
   activeOrderId?: string;
   /** The proposal last put to the customer (the only one a yes can apply). */
@@ -39,6 +42,8 @@ export interface SessionSnapshot {
 
 export interface SessionOptions {
   id?: string;
+  /** Language for labels, summaries and the prompt; "en" by default. */
+  lang?: Lang;
   store?: DataStore;
   /** Playbook registry for this session; defaults to the live one. Tests use a scratch registry. */
   playbooks?: readonly Playbook[];
@@ -46,6 +51,11 @@ export interface SessionOptions {
 
 export class Session {
   readonly id: string;
+  /**
+   * Language the session is served in. Read by the tools (date labels, spoken summaries), the
+   * guards (the confirmation ask) and the prompt; switched by the voice layer on a `lang` message.
+   */
+  lang: Lang;
   /** Per-session copy of the mock data, mutated by applied actions. */
   store: DataStore;
   /** The playbooks this session serves: the tools, the guard and the prompt all read this one. */
@@ -77,6 +87,7 @@ export class Session {
 
   constructor(opts: SessionOptions = {}) {
     this.id = opts.id ?? randomUUID();
+    this.lang = opts.lang ?? DEFAULT_LANG;
     this.store = opts.store ?? createStore();
     this.playbooks = opts.playbooks ?? livePlaybooks;
     assertRegistry(this.playbooks);
@@ -115,6 +126,7 @@ export class Session {
   snapshot(): SessionSnapshot {
     return {
       id: this.id,
+      lang: this.lang,
       customer: this.customer,
       activeOrderId: this.activeOrderId,
       pending: this.pending,
@@ -127,7 +139,7 @@ export class Session {
     };
   }
 
-  /** Back to a fresh session: new data copy, empty ledger, no customer. The registry stays. */
+  /** Back to a fresh session: new data copy, empty ledger, no customer. The registry and the language stay. */
   reset(): void {
     this.store = createStore();
     this.customer = undefined;

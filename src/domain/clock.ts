@@ -7,7 +7,12 @@
  * built in UTC (today(), addDays, Date.UTC). A Date is read by its UTC parts, so one built
  * from local calendar parts (new Date(2026, 8, 8)) in a zone east of UTC labels the
  * previous day. Never pass such a Date; never pass new Date() for "now", use today().
+ *
+ * Labels take the session language: English by default, Turkish weekday and month names
+ * for "tr" ("Cuma 4 Eylül 2026"), same word order in both.
  */
+import { DEFAULT_LANG, type Lang } from "./lang";
+
 export const DEFAULT_TODAY_ISO = "2026-09-03";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
@@ -27,6 +32,14 @@ const MONTHS = [
   "November",
   "December",
 ] as const;
+
+const WEEKDAYS_TR = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"] as const;
+const MONTHS_TR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"] as const;
+
+/** Weekday names per language, Sunday first (Date.getUTCDay order). */
+export const WEEKDAY_NAMES: Record<Lang, readonly string[]> = { en: WEEKDAYS, tr: WEEKDAYS_TR };
+/** Month names per language, January first. */
+export const MONTH_NAMES: Record<Lang, readonly string[]> = { en: MONTHS, tr: MONTHS_TR };
 
 const DAY_MS = 86_400_000;
 
@@ -71,24 +84,30 @@ export function daysBetween(from: Date | string, to: Date | string): number {
   return Math.round((toDate(to).getTime() - toDate(from).getTime()) / DAY_MS);
 }
 
-export function weekdayName(d: Date | string): Weekday {
-  return WEEKDAYS[toDate(d).getUTCDay()];
+/** English weekday name by default; the Turkish one ("Cuma") with lang "tr". */
+export function weekdayName(d: Date | string): Weekday;
+export function weekdayName(d: Date | string, lang: Lang): string;
+export function weekdayName(d: Date | string, lang: Lang = DEFAULT_LANG): string {
+  return WEEKDAY_NAMES[lang][toDate(d).getUTCDay()];
 }
 
-export function monthName(d: Date | string): (typeof MONTHS)[number] {
-  return MONTHS[toDate(d).getUTCMonth()];
+export function monthName(d: Date | string): (typeof MONTHS)[number];
+export function monthName(d: Date | string, lang: Lang): string;
+export function monthName(d: Date | string, lang: Lang = DEFAULT_LANG): string {
+  return MONTH_NAMES[lang][toDate(d).getUTCMonth()];
 }
 
 /**
- * "Tuesday 8 September 2026". The one place a spoken date label is produced. Every tool
- * result that carries a date also carries this label, so the model reads weekdays instead
- * of computing them (a model once said "Monday the 8th of September" for a Tuesday).
+ * "Tuesday 8 September 2026", or "Salı 8 Eylül 2026" with lang "tr". The one place a spoken
+ * date label is produced. Every tool result that carries a date also carries this label, so
+ * the model reads weekdays instead of computing them (a model once said "Monday the 8th of
+ * September" for a Tuesday).
  * A Date input is read by its UTC parts: pass ISO strings or UTC-built Dates only, never a
  * Date built from local calendar parts (see the header).
  */
-export function humanDate(d: Date | string): string {
+export function humanDate(d: Date | string, lang: Lang = DEFAULT_LANG): string {
   const day = toDate(d);
-  return `${WEEKDAYS[day.getUTCDay()]} ${day.getUTCDate()} ${MONTHS[day.getUTCMonth()]} ${day.getUTCFullYear()}`;
+  return `${WEEKDAY_NAMES[lang][day.getUTCDay()]} ${day.getUTCDate()} ${MONTH_NAMES[lang][day.getUTCMonth()]} ${day.getUTCFullYear()}`;
 }
 
 export function isSunday(d: Date | string): boolean {

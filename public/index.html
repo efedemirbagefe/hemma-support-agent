@@ -16,6 +16,7 @@
     --muted: #5E6B63;
     --line: #D5DBD6;
     --accent: #2F5D3A;
+    --accent-dark: #26492E;
     --accent-soft: #DDE9DF;
     --warm: #E8B86D;
     --danger: #B5443A;
@@ -44,6 +45,13 @@
   .wordmark .mark { width: 12px; height: 12px; background: var(--accent); display: inline-block; }
   .topRight { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .seg button { border: 0; background: none; padding: 5px 10px; font: 500 12px/1.4 var(--mono); letter-spacing: .06em; color: var(--muted); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button:hover { color: var(--accent); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .seg button:focus-visible { outline-offset: -2px; }
+
   .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; white-space: nowrap; color: var(--muted); }
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #B4BDB7; flex: none; }
   .pill.ok { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
@@ -56,37 +64,48 @@
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 500; line-height: 1.2; white-space: nowrap; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { background: #26492E; border-color: #26492E; }
+  .btn.primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   .btn:disabled:hover { border-color: var(--line); }
   .btn.primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
   .btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warm); }
   .link { background: none; border: 0; padding: 4px 2px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
-  .link:hover { color: #26492E; }
+  .link:hover { color: var(--accent-dark); }
+  .link:disabled { color: var(--muted); cursor: not-allowed; }
+
+  /* ---------------------------------------------------------------- layout */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 316px; grid-template-areas: "hero aside" "call aside" "hood hood"; column-gap: 28px; align-items: start; }
+  .hero { grid-area: hero; padding: 40px 0 22px; }
+  .call { grid-area: call; }
+  .demo { grid-area: aside; margin-top: 40px; position: sticky; top: 74px; }
+  .hood { grid-area: hood; }
 
   /* ------------------------------------------------------------------ hero */
-  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 32px; align-items: start; padding: 40px 0 26px; }
   .hero h1 { font: 400 46px/1.08 var(--serif); margin: 0 0 12px; letter-spacing: -.005em; }
-  .hero .lead { margin: 0; font-size: 17px; color: var(--muted); max-width: 44ch; }
-  .demo { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
-  .demo h2 { margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
-  .demo dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px 16px; margin: 0 0 12px; }
-  .demo dt { font-size: 12px; color: var(--muted); }
-  .demo dd { margin: 0; font-weight: 500; }
-  .demo ul { margin: 0 0 12px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
-  .demo li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; }
-  .demo li code { color: var(--accent); flex: none; }
-  .demo .try { margin: 0 0 10px; padding: 10px 12px; background: var(--accent-soft); border-radius: 8px; }
-  .demo .alt { margin: 0; font-size: 13px; color: var(--muted); }
+  .hero .lead { margin: 0; font-size: 17px; color: var(--muted); max-width: 46ch; }
+  .cta { margin-top: 24px; }
+  .start { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 60px; padding: 12px 30px 12px 16px; border-radius: 999px; border: 0; background: var(--accent); color: #fff; font-size: 18px; font-weight: 500; line-height: 1.2; cursor: pointer; box-shadow: 0 10px 24px rgba(47, 93, 58, .22); transition: background .15s, transform .1s, box-shadow .15s; }
+  .start:hover { background: var(--accent-dark); transform: translateY(-1px); box-shadow: 0 12px 26px rgba(47, 93, 58, .28); }
+  .start:active { transform: translateY(0); }
+  .start:disabled { background: var(--line); color: var(--muted); box-shadow: none; cursor: not-allowed; transform: none; }
+  .start .icon { width: 36px; height: 36px; border-radius: 50%; background: rgba(255, 255, 255, .16); display: grid; place-items: center; flex: none; }
+  .ctaAlt { margin: 12px 0 0 4px; font-size: 14px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 
-  /* ------------------------------------------------------------------ chat */
-  .chat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  /* ------------------------------------------------------------ call panel */
+  .call { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; scroll-margin-top: 66px; }
   .banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--danger); background: rgba(181, 68, 58, .07); color: var(--danger); font-weight: 500; }
   .note { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
-  .flow { min-height: 260px; max-height: 56vh; overflow-y: auto; padding: 4px 4px 8px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
-  .flow:empty { justify-content: center; align-items: center; }
-  .flow:empty::before { content: "Say hello, or type a message. The assistant will ask for your customer number or phone number."; color: var(--muted); text-align: center; max-width: 34ch; }
+
+  .howto { padding: 4px 2px 6px; }
+  .howto h2 { margin: 0 0 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .howto ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .howto li { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+  .howto .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 500 13px/26px var(--mono); text-align: center; }
+  .howto strong { display: block; font-weight: 600; line-height: 1.3; padding-top: 3px; }
+  .howto .sub { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+  .flow { min-height: 220px; max-height: 52vh; overflow-y: auto; padding: 4px 4px 8px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
   .msg { display: flex; flex-direction: column; max-width: 78%; }
   .msg.user { align-self: flex-end; align-items: flex-end; }
   .msg.assistant { align-self: flex-start; align-items: flex-start; }
@@ -108,24 +127,57 @@
   .chip .state { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
   .sysnote { align-self: center; font-size: 13px; color: var(--muted); text-align: center; max-width: 60ch; }
   .sysnote.err { color: var(--danger); }
-  .speaking { font-size: 13px; color: var(--accent); margin: 8px 4px 0; display: flex; align-items: center; gap: 8px; }
-  .speaking::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: blink .9s infinite; }
 
-  .composer { display: flex; align-items: center; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-  .micWrap { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 104px; }
-  .mic { position: relative; width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; transition: background .15s, transform .1s; }
+  .phrasesWrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .phrasesLabel { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+  .phrases { display: flex; flex-wrap: wrap; gap: 8px; }
+  .phrase { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 7px 13px; font-size: 13px; line-height: 1.3; cursor: pointer; text-align: left; transition: border-color .12s, color .12s; }
+  .phrase:hover { border-color: var(--accent); color: var(--accent); }
+  .phrase.used { opacity: .55; }
+  .phrase:disabled { opacity: .45; cursor: not-allowed; }
+  .phrase:disabled:hover { border-color: var(--line); color: var(--ink); }
+
+  .composer { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+  .live { display: flex; align-items: center; gap: 14px; }
+  .micWrap { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 96px; flex: none; }
+  .mic { position: relative; width: 60px; height: 60px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; transition: background .15s, transform .1s; }
   .mic:hover { transform: scale(1.04); }
   .mic:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; transform: none; }
   .mic.listening { background: var(--warm); color: var(--ink); }
-  .mic .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--warm); opacity: 0; pointer-events: none; transition: transform 80ms linear; }
+  .mic .ring { position: absolute; inset: -5px; border-radius: 50%; border: 3px solid var(--warm); opacity: 0; pointer-events: none; transition: transform 80ms linear, opacity .2s; }
   .mic.listening .ring { opacity: .9; }
-  .mic.listening::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--warm); animation: pulse 1.4s ease-out infinite; }
+  .mic.listening::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px solid var(--warm); animation: pulse 1.4s ease-out infinite; }
   .mic svg { position: relative; }
   .micHint { font-size: 12px; color: var(--muted); text-align: center; max-width: 150px; line-height: 1.3; }
+  .liveText { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; min-height: 22px; }
+  .status .sdot { width: 9px; height: 9px; border-radius: 50%; background: #B4BDB7; flex: none; }
+  .status.connecting .sdot { animation: blink 1s infinite; }
+  .status.listening .sdot { background: var(--warm); animation: blink 1.6s infinite; }
+  .status.thinking .sdot { background: var(--accent); animation: blink .7s infinite; }
+  .status.speaking .sdot { display: none; }
+  .bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 16px; width: 18px; }
+  .bars i { flex: 1; background: var(--accent); border-radius: 2px; height: 35%; animation: bar .9s ease-in-out infinite; }
+  .bars i:nth-child(2) { animation-delay: .15s; }
+  .bars i:nth-child(3) { animation-delay: .3s; }
+  .liveHint { font-size: 13px; color: var(--muted); }
+  .liveHint:empty { display: none; }
+  .live .link { margin-left: auto; flex: none; }
   .text { display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; }
   .text input { flex: 1; min-width: 0; padding: 11px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
   .text input::placeholder { color: #8A958E; }
   .text input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* ------------------------------------------------------------- demo card */
+  .demo { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; font-size: 14px; }
+  .demo h2 { margin: 0 0 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .demo .name { font: 400 26px/1.1 var(--serif); margin-bottom: 6px; }
+  .demo .ids { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .demo .ids code { color: var(--ink); }
+  .demo ul { list-style: none; margin: 0 0 10px; padding: 0; border-top: 1px solid var(--line); }
+  .demo li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .demo li code { color: var(--accent); flex: none; }
+  .demo .alt { margin: 0; font-size: 12px; color: var(--muted); }
 
   /* ------------------------------------------------------------------ hood */
   .hood { margin-top: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; font-size: 13px; }
@@ -175,28 +227,52 @@
 
   @keyframes pulse { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(1.55); opacity: 0; } }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+  @keyframes bar { 0%, 100% { height: 30%; } 50% { height: 100%; } }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
     .flow { scroll-behavior: auto; }
+    .bars i { height: 60%; }
   }
 
   @media (max-width: 860px) {
-    .hero { grid-template-columns: 1fr; gap: 20px; padding: 28px 0 20px; }
+    .layout { grid-template-columns: 1fr; grid-template-areas: "hero" "call" "aside" "hood"; }
+    .hero { padding: 28px 0 18px; }
     .hero h1 { font-size: 36px; }
+    .demo { position: static; margin-top: 20px; }
     .cols { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .howto ol { grid-template-columns: 1fr; gap: 8px; }
+    .howto li { align-items: center; }
+    .howto strong { padding-top: 0; }
+    .howto .sub { display: none; }
   }
   @media (max-width: 560px) {
     .wrap { padding: 0 14px; }
     .top .wrap { height: 54px; gap: 8px; }
     .wordmark { font-size: 26px; }
-    .pill { font-size: 12px; padding: 2px 8px; }
+    .seg button { padding: 5px 8px; }
+    /* The connection pill collapses to its dot; the text stays in the tree for screen readers and in the tooltip. */
+    .pill { font-size: 0; padding: 0; gap: 0; width: 14px; height: 14px; justify-content: center; }
+    .pill::before { width: 8px; height: 8px; }
     .btn { padding: 7px 10px; font-size: 14px; }
-    .hero h1 { font-size: 32px; }
-    .composer { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
-    .micWrap { width: 100%; }
-    .text { flex-basis: 100%; }
+    .hero { padding: 22px 0 16px; }
+    .hero h1 { font-size: 32px; margin-bottom: 10px; }
+    .hero .lead { font-size: 15px; }
+    .cta { margin-top: 16px; }
+    .start { width: 100%; min-height: 54px; font-size: 17px; }
+    .call { padding: 14px; }
+    .howto { padding-bottom: 2px; }
+    .howto ol { gap: 6px; }
+    .howto .n { width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
+    /* One swipeable row keeps the chips on the first screen of a 390 px phone. */
+    .phrases { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+    .phrase { white-space: nowrap; flex: none; scroll-snap-align: start; }
+    .micWrap { min-width: 72px; }
+    .mic { width: 54px; height: 54px; }
+    .micHint { display: none; }
     .msg { max-width: 92%; }
-    .flow { max-height: 50vh; min-height: 200px; }
+    .flow { max-height: 50vh; min-height: 180px; }
     .foot { padding: 22px 14px 36px; }
   }
 </style>
@@ -206,109 +282,144 @@
   <div class="wrap">
     <a class="wordmark" href="/"><span class="mark" aria-hidden="true"></span>Hemma</a>
     <div class="topRight">
+      <div class="seg" role="group" aria-label="Language" data-i18n-aria="lang.label">
+        <button id="langEn" type="button" data-lang="en" aria-pressed="true" lang="en">EN</button>
+        <button id="langTr" type="button" data-lang="tr" aria-pressed="false" lang="tr">TR</button>
+      </div>
       <span id="connStatus" class="pill" role="status" aria-live="polite">connecting</span>
-      <button id="btnHood" type="button" class="btn" aria-expanded="false" aria-controls="hood">Under the hood<span id="hoodDot" class="dot" hidden></span></button>
+      <button id="btnHood" type="button" class="btn" aria-expanded="false" aria-controls="hood"><span data-i18n="hood.toggle">Under the hood</span><span id="hoodDot" class="dot" hidden></span></button>
     </div>
   </div>
 </header>
 
-<main class="wrap">
-  <section class="hero">
-    <div>
-      <h1>Customer support you can talk to.</h1>
-      <p class="lead">Ask about an existing order: delivery dates, damaged items, late parcels. Speak or type, the assistant checks your order and applies what you confirm.</p>
-    </div>
-    <aside class="demo" aria-labelledby="demoTitle">
-      <h2 id="demoTitle">Try it with the demo customer</h2>
-      <dl>
-        <div><dt>Name</dt><dd>Anna Weber</dd></div>
-        <div><dt>Customer number</dt><dd><code>HM-2201</code></dd></div>
-        <div><dt>Phone</dt><dd><code>+49 30 1234567</code></dd></div>
-      </dl>
-      <ul>
-        <li><code>HM-1042</code><span>Linen sofa cover, EUR 89, arriving Tuesday 8 September</span></li>
-        <li><code>HM-0977</code><span>Arc floor lamp, EUR 240, delivered 28 August</span></li>
-      </ul>
-      <p class="try">Try: ask about your latest order, then say the lamp arrived damaged, then move the sofa cover to Friday.</p>
-      <p class="alt">Second customer: Jonas Berg, <code>HM-2305</code>, order <code>HM-1010</code> is four days late.</p>
-    </aside>
-  </section>
-
-  <section class="chat" aria-label="Conversation">
-    <div id="modelBanner" class="banner" role="alert" hidden>The assistant is offline on this deployment: the model key is not configured.</div>
-    <div id="ttsNote" class="note" hidden>Replies are text only on this deployment</div>
-    <div id="transcript" class="flow"></div>
-    <div id="speakStatus" class="speaking" hidden>Assistant is speaking</div>
-    <div class="composer">
-      <div class="micWrap">
-        <button id="btnMic" type="button" class="mic" aria-label="Start voice input" aria-pressed="false">
-          <span id="micLevel" class="ring" aria-hidden="true"></span>
-          <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<main class="wrap layout">
+  <section class="hero" id="hero">
+    <h1 id="heroTitle" data-i18n="hero.title">Customer support you can talk to.</h1>
+    <p id="heroLead" class="lead" data-i18n="hero.lead">Ask about an existing order: delivery dates, damaged items, late parcels. Speak or type, the assistant checks your order and applies what you confirm.</p>
+    <div id="cta" class="cta">
+      <button id="btnStart" type="button" class="start">
+        <span class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="3" width="6" height="11" rx="3"></rect>
             <path d="M5 11a7 7 0 0 0 14 0"></path>
             <path d="M12 18v3"></path>
           </svg>
-        </button>
-        <span id="micHint" class="micHint">Tap to talk</span>
+        </span>
+        <span data-i18n="cta.start">Start a call</span>
+      </button>
+      <div class="ctaAlt">
+        <span data-i18n="cta.noMic">No microphone?</span>
+        <button id="btnTypeInstead" type="button" class="link" data-i18n="cta.type">Type instead</button>
       </div>
-      <form id="textForm" class="text" autocomplete="off">
-        <input id="textInput" type="text" placeholder="Type a message" aria-label="Message" maxlength="2000" enterkeyhint="send">
-        <button id="btnSend" type="submit" class="btn primary" disabled>Send</button>
-      </form>
-      <button id="btnReset" type="button" class="link">Start over</button>
     </div>
   </section>
 
+  <section id="call" class="call" aria-label="Conversation" data-i18n-aria="call.label">
+    <div id="modelBanner" class="banner" role="alert" hidden data-i18n="banner.model">The assistant is offline on this deployment: the model key is not configured.</div>
+    <div id="ttsNote" class="note" hidden data-i18n="note.tts">Replies are text only on this deployment</div>
+    <div id="howto" class="howto">
+      <h2 data-i18n="how.title">How it works</h2>
+      <ol>
+        <li><span class="n" aria-hidden="true">1</span><div><strong data-i18n="how.1">Say who you are</strong><span class="sub" data-i18n="how.1s">Your name and customer number, or the phone number on the order.</span></div></li>
+        <li><span class="n" aria-hidden="true">2</span><div><strong data-i18n="how.2">Ask about an order</strong><span class="sub" data-i18n="how.2s">A delivery date, a damaged item, a late parcel.</span></div></li>
+        <li><span class="n" aria-hidden="true">3</span><div><strong data-i18n="how.3">Confirm before anything changes</strong><span class="sub" data-i18n="how.3s">Nothing is applied until you say yes.</span></div></li>
+      </ol>
+    </div>
+    <div id="transcript" class="flow" hidden></div>
+    <div class="phrasesWrap">
+      <span id="phrasesLabel" class="phrasesLabel" data-i18n="phrases.label">Try saying</span>
+      <div id="phrases" class="phrases"></div>
+    </div>
+    <div id="composer" class="composer" hidden>
+      <div class="live">
+        <div class="micWrap">
+          <button id="btnMic" type="button" class="mic" aria-label="Start voice input" aria-pressed="false">
+            <span id="micLevel" class="ring" aria-hidden="true"></span>
+            <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+              <path d="M5 11a7 7 0 0 0 14 0"></path>
+              <path d="M12 18v3"></path>
+            </svg>
+          </button>
+          <span id="micHint" class="micHint">Tap to talk</span>
+        </div>
+        <div class="liveText">
+          <div id="status" class="status" role="status" aria-live="polite"><span class="sdot" aria-hidden="true"></span><span id="statusWord"></span><span id="bars" class="bars" aria-hidden="true" hidden><i></i><i></i><i></i></span></div>
+          <div id="liveHint" class="liveHint"></div>
+        </div>
+        <button id="btnReset" type="button" class="link" data-i18n="composer.reset">Start over</button>
+      </div>
+      <form id="textForm" class="text" autocomplete="off">
+        <input id="textInput" type="text" placeholder="Type a message" aria-label="Message" maxlength="2000" enterkeyhint="send" data-i18n-placeholder="composer.placeholder" data-i18n-aria="composer.ariaMessage">
+        <button id="btnSend" type="submit" class="btn primary" disabled data-i18n="composer.send">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <aside id="demo" class="demo" aria-labelledby="demoTitle">
+    <h2 id="demoTitle" data-i18n="demo.title">Demo customer</h2>
+    <div class="name">Anna Weber</div>
+    <div class="ids">
+      <span><span data-i18n="demo.customerNo">Customer number</span> <code>HM-2201</code></span>
+      <span><span data-i18n="demo.phone">Phone</span> <code>+49 30 1234567</code></span>
+    </div>
+    <ul>
+      <li><code>HM-1042</code><span data-i18n="demo.order1">Linen sofa cover, EUR 89, arriving Tuesday 8 September</span></li>
+      <li><code>HM-0977</code><span data-i18n="demo.order2">Arc floor lamp, EUR 240, delivered 28 August</span></li>
+    </ul>
+    <p class="alt" data-i18n-html="demo.alt">Second customer: Jonas Berg, <code>HM-2305</code>, order <code>HM-1010</code> is four days late.</p>
+  </aside>
+
   <section id="hood" class="hood" hidden aria-labelledby="hoodTitle">
     <div class="hoodHead">
-      <h2 id="hoodTitle">Under the hood</h2>
+      <h2 id="hoodTitle" data-i18n="hood.title">Under the hood</h2>
       <span id="chaosStatus" class="pill chaos" title="Chaos toggles active on the server (from the ?fail= query)" hidden></span>
       <span id="voiceInfo" class="info"></span>
       <span id="audioInfo" class="info"></span>
     </div>
     <div class="cols">
       <div class="col">
-        <h3>Tool calls</h3>
+        <h3 data-i18n="hood.tools">Tool calls</h3>
         <div class="scroll">
           <table>
-            <thead><tr><th>Turn</th><th>Tool</th><th>Phase</th><th>ms</th><th>Args</th><th>Note</th></tr></thead>
+            <thead><tr><th data-i18n="th.turn">Turn</th><th data-i18n="th.tool">Tool</th><th data-i18n="th.phase">Phase</th><th data-i18n="th.ms">ms</th><th data-i18n="th.args">Args</th><th data-i18n="th.note">Note</th></tr></thead>
             <tbody id="toolsBody"></tbody>
           </table>
-          <div id="toolsEmpty" class="empty">No tool calls yet.</div>
+          <div id="toolsEmpty" class="empty" data-i18n="hood.toolsEmpty">No tool calls yet.</div>
         </div>
       </div>
       <div class="col">
-        <h3>Session state</h3>
+        <h3 data-i18n="hood.state">Session state</h3>
         <div id="stateSummary" class="summary"></div>
         <div id="receipts" class="receipts" hidden></div>
         <details class="raw">
-          <summary>Raw snapshot</summary>
+          <summary data-i18n="hood.raw">Raw snapshot</summary>
           <pre id="state" class="scroll">{}</pre>
         </details>
       </div>
       <div class="col">
-        <h3>Latency per turn (ms)</h3>
+        <h3 data-i18n="hood.latency">Latency per turn (ms)</h3>
         <div class="scroll">
           <table>
-            <thead><tr><th>Turn</th><th>STT final</th><th>First token</th><th>First audio</th><th>Played</th><th>Tool ms</th><th>Total</th><th>TTS</th></tr></thead>
+            <thead><tr><th data-i18n="th.turn">Turn</th><th data-i18n="th.sttFinal">STT final</th><th data-i18n="th.firstToken">First token</th><th data-i18n="th.firstAudio">First audio</th><th data-i18n="th.played">Played</th><th data-i18n="th.toolMs">Tool ms</th><th data-i18n="th.total">Total</th><th data-i18n="th.tts">TTS</th></tr></thead>
             <tbody id="latencyBody"></tbody>
             <tfoot id="latencyFoot" hidden></tfoot>
           </table>
-          <div id="latencyEmpty" class="empty">No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).</div>
+          <div id="latencyEmpty" class="empty" data-i18n="hood.latencyEmpty">No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).</div>
         </div>
       </div>
     </div>
     <div class="log">
-      <h3>Event log</h3>
+      <h3 data-i18n="hood.log">Event log</h3>
       <ol id="eventLog" class="scroll"></ol>
     </div>
-    <p class="chaosHelp">Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge above lists what is active.</p>
+    <p class="chaosHelp" data-i18n-html="hood.chaos">Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge above lists what is active.</p>
   </section>
 </main>
 
 <footer class="foot wrap">
-  <p>Hemma is a fictional store built for a case study. Nothing here is a real order.</p>
-  <a href="/brief">How this was built</a>
+  <p data-i18n="foot.note">Hemma is a fictional store built for a case study. Nothing here is a real order.</p>
+  <a href="/brief" data-i18n="foot.brief">How this was built</a>
 </footer>
 
 <div id="toast" role="status" hidden></div>

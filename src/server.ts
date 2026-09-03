@@ -5,7 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { DEFAULT_MODEL_ID } from "./agent/createAgent";
+import { DEFAULT_LANG, parseLang } from "./domain/lang";
 import { parseChaos } from "./voice/chaos";
+import { describeSttModel } from "./voice/deepgram";
 import { DEEPGRAM_TTS_MODEL } from "./voice/deepgram-tts";
 import { DEFAULT_VOICE_ID } from "./voice/elevenlabs";
 import { VoiceSession } from "./voice/session-voice";
@@ -198,6 +200,8 @@ server.on("upgrade", (req, socket, head) => {
   }
   // Demo chaos toggles live only in the upgrade URL (?fail=tool,tts,stt), never in env.
   const chaos = parseChaos(url.searchParams.getAll("fail").join(","));
+  // Session language (?lang=en|tr, default en); a {type:"lang"} message can switch it later.
+  const lang = parseLang(url.searchParams.get("lang")) ?? DEFAULT_LANG;
   wss.handleUpgrade(req, socket, head, (ws) => {
     const vs = new VoiceSession(ws, {
       deepgramKey: voice.deepgramKey,
@@ -206,9 +210,10 @@ server.on("upgrade", (req, socket, head) => {
       voiceId: voice.voiceId,
       modelId: voice.modelId,
       chaos,
+      lang,
     });
     sessions.add(vs);
-    log(`client connected (${vs.id})${chaos.length > 0 ? ` chaos=${chaos.join(",")}` : ""}, ${sessions.size} open`);
+    log(`client connected (${vs.id}) lang=${lang}${chaos.length > 0 ? ` chaos=${chaos.join(",")}` : ""}, ${sessions.size} open`);
     ws.on("close", () => {
       sessions.delete(vs);
       log(`client disconnected (${vs.id}), ${sessions.size} open`);
@@ -231,7 +236,9 @@ server.listen(PORT, () => {
         : "tts: elevenlabs only (no DEEPGRAM_API_KEY, so no Aura fallback)",
     );
   }
-  if (voice.deepgramKey && voice.elevenLabsKey) log("voice ON (deepgram nova-3, elevenlabs flash v2.5)");
+  if (voice.deepgramKey && voice.elevenLabsKey) {
+    log(`voice ON (deepgram ${describeSttModel("en")} for en, ${describeSttModel("tr")} for tr; elevenlabs flash v2.5 both, aura en only)`);
+  }
   if (voice.modelId) log(`model override: ${voice.modelId}`);
   if (extraOrigins.size > 0) log(`extra ws origins: ${[...extraOrigins].join(", ")}`);
   // Vendor socket overrides are test hooks; say so loudly when one is in force, because the

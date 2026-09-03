@@ -3,6 +3,7 @@
  *   npx tsx scripts/chat.ts            (needs ANTHROPIC_API_KEY in .env)
  *   NOW=2026-09-08 npx tsx scripts/chat.ts
  *   MODEL_ID=claude-haiku-4-5 npx tsx scripts/chat.ts
+ *   npx tsx scripts/chat.ts --lang tr     (Turkish persona, labels and summaries)
  * Commands: /state, /reset, exit
  */
 import "dotenv/config";
@@ -10,6 +11,7 @@ import * as readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { createSupportAgent } from "../src/agent/createAgent";
 import { isoDate, today, weekdayName } from "../src/domain/clock";
+import { DEFAULT_LANG, parseLang } from "../src/domain/lang";
 import { Session } from "../src/domain/session";
 
 function short(text: string, max = 600): string {
@@ -30,7 +32,10 @@ function printState(session: Session): void {
 }
 
 async function main(): Promise<void> {
-  const session = new Session();
+  const langIdx = process.argv.indexOf("--lang");
+  const lang = langIdx >= 0 ? parseLang(process.argv[langIdx + 1]) : DEFAULT_LANG;
+  if (!lang) throw new Error("--lang must be en or tr");
+  const session = new Session({ lang });
   let textOnLine = false;
   const sa = createSupportAgent({
     session,
@@ -54,7 +59,7 @@ async function main(): Promise<void> {
   });
 
   const now = today();
-  console.log(`Hemma support chat. Today: ${weekdayName(now)} ${isoDate(now)}${process.env.NOW ? " (NOW override)" : ""}. Model: ${sa.agent.state.model.id}.`);
+  console.log(`Hemma support chat. Today: ${weekdayName(now, lang)} ${isoDate(now)}${process.env.NOW ? " (NOW override)" : ""}. Model: ${sa.agent.state.model.id}. Lang: ${lang}.`);
   console.log("Try: 'Hi, Anna Weber, HM-2201, I want to move my sofa cover delivery to Friday afternoon.' Commands: /state, /reset, exit.\n");
 
   const rl = readline.createInterface({ input: stdin, output: stdout });

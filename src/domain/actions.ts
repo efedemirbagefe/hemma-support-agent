@@ -5,6 +5,7 @@
  */
 import { daysBetween, humanDate, today } from "./clock";
 import { customerForOrder, findOrder } from "./data";
+import { DEFAULT_LANG, type Lang } from "./lang";
 import { getPlaybook, playbooksForAction } from "./policies/index";
 import { actionKey, stableStringify, type Session } from "./session";
 import type { ActionType, AppliedRecord, Customer, Order, PendingAction, ResolutionOption } from "./types";
@@ -55,7 +56,7 @@ export function optionsFor(session: Session, order: Order, scenario: string): Op
   const customer = customerForOrder(session.store, order);
   if (!customer) throw new Error(`Data integrity: order ${order.id} has no customer`);
   const playbook = getPlaybook(scenario, session.playbooks);
-  const ctx = { today: today(), delayDays: delayDaysFor(order) };
+  const ctx = { today: today(), delayDays: delayDaysFor(order), lang: session.lang };
   const options = playbook.options(order, customer, ctx);
   const note = playbook.note?.(order, customer, ctx);
   return {
@@ -156,21 +157,40 @@ function itemName(order: Order, sku: unknown): string {
   return item ? item.name : "the item";
 }
 
-/** Date fields for results that carry a delivery date (reschedule): ISO plus the spoken label. */
-export function dateFields(type: ActionType, params: Record<string, unknown>): { date: string; dateLabel: string } | Record<string, never> {
+/** Date fields for results that carry a delivery date (reschedule): ISO plus the spoken label in `lang`. */
+export function dateFields(type: ActionType, params: Record<string, unknown>, lang: Lang = DEFAULT_LANG): { date: string; dateLabel: string } | Record<string, never> {
   if (type !== "reschedule") return {};
   const date = asString(params.date);
   if (!date) return {};
   try {
-    return { date, dateLabel: humanDate(date) };
+    return { date, dateLabel: humanDate(date, lang) };
   } catch {
     return {};
   }
 }
 
-/** Spoken one-liner the agent reads to the customer before applying. Dates carry their weekday label. */
-export function summarize(option: ResolutionOption, order: Order): string {
+/**
+ * Spoken one-liner the agent reads to the customer before applying, in the session language.
+ * Dates carry their weekday label; amounts stay "EUR 89", ids stay "HM-1042", product names
+ * stay as the data has them.
+ */
+export function summarize(option: ResolutionOption, order: Order, lang: Lang = DEFAULT_LANG): string {
   const p = option.params;
+  if (lang === "tr") {
+    switch (option.type) {
+      case "reschedule": {
+        const date = String(p.date);
+        const window = p.window === "09-13" ? "sabah 9 ile 1 arasına" : "öğleden sonra 1 ile 6 arasına";
+        return `${order.id} numaralı siparişin teslimatını ${humanDate(date, "tr")} tarihine, ${window} alalım.`;
+      }
+      case "replacement":
+        return `${order.id} numaralı sipariş için ${itemName(order, p.sku)} ürününü ücretsiz olarak yeniden gönderelim.`;
+      case "refund":
+        return `${order.id} numaralı siparişteki ${itemName(order, p.sku)} için EUR ${option.amountEur ?? order.totalEur} iade edelim.`;
+      case "compensation":
+        return `${order.id} numaralı siparişin geç teslimatı için EUR ${option.amountEur ?? p.amountEur} tutarında telafi tanımlayalım.`;
+    }
+  }
   switch (option.type) {
     case "reschedule": {
       const date = String(p.date);
@@ -184,6 +204,11 @@ export function summarize(option: ResolutionOption, order: Order): string {
     case "compensation":
       return `Credit EUR ${option.amountEur ?? p.amountEur} as compensation for the late delivery of order ${order.id}.`;
   }
+}
+
+/** The question the agent asks after reading a proposal, in the session language. */
+export function confirmationAsk(summary: string, lang: Lang = DEFAULT_LANG): string {
+  return lang === "tr" ? `${summary} Onaylıyor musunuz?` : `${summary} Shall I go ahead?`;
 }
 
 /**
@@ -200,7 +225,7 @@ export function propose(session: Session, order: Order, option: ResolutionOption
     type: option.type,
     orderId: order.id,
     params,
-    summary: summarize(option, order),
+    summary: summarize(option, order, session.lang),
     proposedAt: keepStamp ? current.proposedAt : Date.now(),
     proposedTurn: keepStamp ? current.proposedTurn : session.utteranceSeq,
   };

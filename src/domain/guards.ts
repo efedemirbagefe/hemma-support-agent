@@ -3,7 +3,7 @@
  * cannot talk its way past them.
  */
 import type { AfterToolCallContext, AfterToolCallResult, BeforeToolCallContext, BeforeToolCallResult } from "@earendil-works/pi-agent-core";
-import { propose, resolveAction } from "./actions";
+import { confirmationAsk, propose, resolveAction } from "./actions";
 import { findOrder } from "./data";
 import type { Session } from "./session";
 import type { ActionType } from "./types";
@@ -21,8 +21,12 @@ export const AFFIRMATIVE_PHRASES = [
   "that's right",
   "correct",
   "evet",
+  "evet lütfen",
   "tamam",
   "onaylıyorum",
+  "onayla",
+  "olur",
+  "kabul",
 ] as const;
 
 /** Any of these in the same utterance makes it non-affirmative. */
@@ -53,6 +57,7 @@ export const NEGATION_PHRASES = [
   "olmaz",
   "istemiyorum",
   "istemem",
+  "iptal",
   "değil",
   "degil",
   "yok",
@@ -151,7 +156,7 @@ export function applyResolutionBlockReason(session: Session, args: ApplyResoluti
   const verdict = confirmationVerdict(session, resolved.key);
   if (!verdict.ok) {
     const pending = propose(session, resolved.order, resolved.option, resolved.key, resolved.params);
-    return `NEEDS_CONFIRMATION: ${verdict.why}. Ask them: "${pending.summary} Shall I go ahead?" and call apply_resolution again only after they say yes.`;
+    return `NEEDS_CONFIRMATION: ${verdict.why}. Ask them: "${confirmationAsk(pending.summary, session.lang)}" and call apply_resolution again only after they say yes.`;
   }
   return undefined;
 }

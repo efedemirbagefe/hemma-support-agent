@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Agent, type AgentEvent, type StreamFn } from "@earendil-works/pi-agent-core";
-import { createModels, type Model } from "@earendil-works/pi-ai";
+import { createModels, type AssistantMessage, type Model, type Usage } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { makeAfterToolCall, makeBeforeToolCall } from "../domain/guards";
 import type { Session } from "../domain/session";
@@ -24,7 +24,18 @@ export interface SupportAgent {
   sendUserText(text: string): Promise<void>;
   abort(): void;
   isBusy(): boolean;
+  /**
+   * Appends an assistant text message to the history without a model call: the fixed greeting
+   * the voice layer speaks first, so the model knows it already greeted and does not do it
+   * again. Call it while the agent is idle (the voice layer serialises it with the turns).
+   * Verified 2026-09-03 with claude-haiku-4-5 (scratch/greet-history.ts): the Anthropic API
+   * accepts a history that starts with this assistant message, and the next answer went
+   * straight to the order without a second greeting.
+   */
+  addAssistantMessage(text: string): void;
 }
+
+const ZERO_USAGE: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 
 /** Minimal model object for injected stream functions (tests). */
 export function stubModel(id = "fake-model"): Model<any> {
@@ -117,6 +128,20 @@ export function createSupportAgent(opts: SupportAgentOptions): SupportAgent {
     },
     isBusy() {
       return agent.state.isStreaming;
+    },
+    addAssistantMessage(text: string) {
+      const m = agent.state.model;
+      const message: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        api: m.api,
+        provider: m.provider,
+        model: m.id,
+        usage: ZERO_USAGE,
+        stopReason: "stop",
+        timestamp: Date.now(),
+      };
+      agent.state.messages = [...agent.state.messages, message];
     },
   };
 }

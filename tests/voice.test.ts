@@ -16,24 +16,25 @@ import { Session } from "../src/domain/session";
 import { createTools } from "../src/domain/tools";
 import { ChaosState, instrumentTools, parseChaos } from "../src/voice/chaos";
 import { SentenceChunker } from "../src/voice/chunker";
-import { DeepgramStt } from "../src/voice/deepgram";
+import { DEEPGRAM_URL, DeepgramStt, deepgramListenUrl, describeSttModel } from "../src/voice/deepgram";
 import { DEEPGRAM_TTS_MODEL, deepgramSpeakUrl } from "../src/voice/deepgram-tts";
+import { ELEVENLABS_MODEL_ID, elevenLabsUrl } from "../src/voice/elevenlabs";
 import { TurnLatency } from "../src/voice/latency";
-import { FILLER_TEXT, VoiceSession, MAX_TEXT_CHARS, type ServerMessage } from "../src/voice/session-voice";
+import { FILLER_TEXT, FILLER_TEXTS, GREETINGS, VoiceSession, MAX_TEXT_CHARS, type ServerMessage } from "../src/voice/session-voice";
 import { MS_PER_CHAR_FLOOR, lostChunks } from "../src/voice/tts";
 import { vendorUrlOverride } from "../src/voice/vendor-url";
 
 // ------------------------------------------------------------------ mocks
 
-/** Deepgram stand-in: counts audio bytes so word timestamps live on the real audio clock. */
+/** Deepgram stand-in: counts audio bytes so word timestamps live on the real audio clock, and keeps each socket's request URL (the model query). */
 class MockDeepgram {
   readonly wss: WebSocketServer;
-  readonly sockets: Array<{ ws: WebSocket; audioBytes: number }> = [];
+  readonly sockets: Array<{ ws: WebSocket; audioBytes: number; url: string }> = [];
   url = "";
   constructor() {
     this.wss = new WebSocketServer({ port: 0 });
-    this.wss.on("connection", (ws) => {
-      const entry = { ws, audioBytes: 0 };
+    this.wss.on("connection", (ws, req) => {
+      const entry = { ws, audioBytes: 0, url: req.url ?? "" };
       this.sockets.push(entry);
       ws.on("message", (data, isBinary) => {
         if (isBinary) entry.audioBytes += (data as Buffer).length;
@@ -49,7 +50,7 @@ class MockDeepgram {
     this.url = `ws://127.0.0.1:${(this.wss.address() as AddressInfo).port}/v1/listen`;
     return this.url;
   }
-  async waitForSocket(n = 1): Promise<{ ws: WebSocket; audioBytes: number }> {
+  async waitForSocket(n = 1): Promise<{ ws: WebSocket; audioBytes: number; url: string }> {
     for (let i = 0; i < 200 && this.sockets.length < n; i++) await sleep(10);
     assert.ok(this.sockets.length >= n, `mock deepgram: expected ${n} connection(s)`);
     return this.sockets[n - 1];
@@ -251,9 +252,10 @@ class FakeClientWs extends EventEmitter {
 type Emit = (e: AgentEvent) => void;
 type Script = (emit: Emit, signal: AbortSignal, text: string, session: Session) => Promise<void>;
 
-/** Scripted SupportAgent: `script` drives the events for each sendUserText. */
+/** Scripted SupportAgent: `script` drives the events for each sendUserText; `seeded` records addAssistantMessage. */
 function fakeAgentFactory(script: Script) {
   const calls: string[] = [];
+  const seeded: string[] = [];
   const factory = (session: Session, onEvent: Emit): SupportAgent => {
     let streaming = false;
     let controller: AbortController | undefined;
@@ -286,9 +288,12 @@ function fakeAgentFactory(script: Script) {
       isBusy() {
         return streaming;
       },
+      addAssistantMessage(text: string) {
+        seeded.push(text);
+      },
     };
   };
-  return { factory, calls };
+  return { factory, calls, seeded };
 }
 
 const delta = (text: string): AgentEvent =>
@@ -1147,4 +1152,320 @@ test("vendor url override: loopback is honoured, any other host only with ALLOW_
     if (saved.allow === undefined) delete process.env.ALLOW_VENDOR_URL_OVERRIDE;
     else process.env.ALLOW_VENDOR_URL_OVERRIDE = saved.allow;
   }
+});
+
+// ------------------------------------------------------------------ language: lang query, lang message, Turkish STT / TTS
+
+test("deepgram: the listen URL is nova-3 for en and nova-2 with language=tr for tr, everything else identical", () => {
+  const en = new URL(deepgramListenUrl("en"));
+  const tr = new URL(deepgramListenUrl("tr"));
+  assert.equal(en.searchParams.get("model"), "nova-3");
+  assert.equal(en.searchParams.get("language"), null);
+  assert.equal(tr.searchParams.get("model"), "nova-2");
+  assert.equal(tr.searchParams.get("language"), "tr");
+  for (const u of [en, tr]) {
+    assert.equal(u.host, "api.deepgram.com");
+    assert.equal(u.pathname, "/v1/listen");
+    assert.equal(u.searchParams.get("encoding"), "linear16");
+    assert.equal(u.searchParams.get("sample_rate"), "16000");
+    assert.equal(u.searchParams.get("channels"), "1");
+    assert.equal(u.searchParams.get("interim_results"), "true");
+    assert.equal(u.searchParams.get("endpointing"), "300");
+    assert.equal(u.searchParams.get("utterance_end_ms"), "1000");
+    assert.equal(u.searchParams.get("vad_events"), "true");
+    assert.equal(u.searchParams.get("smart_format"), "true");
+  }
+  assert.equal(DEEPGRAM_URL, deepgramListenUrl("en"));
+  assert.equal(describeSttModel("en"), "nova-3");
+  assert.equal(describeSttModel("tr"), "nova-2 tr");
+});
+
+test("elevenlabs: the Turkish stream URL enforces language_code=tr, the English one is unchanged", () => {
+  const saved = process.env.ELEVENLABS_WS_URL;
+  delete process.env.ELEVENLABS_WS_URL;
+  try {
+    const en = new URL(elevenLabsUrl("v1"));
+    const tr = new URL(elevenLabsUrl("v1", "tr"));
+    assert.equal(en.searchParams.get("language_code"), null);
+    assert.equal(tr.searchParams.get("language_code"), "tr");
+    for (const u of [en, tr]) {
+      assert.equal(u.pathname, "/v1/text-to-speech/v1/stream-input");
+      assert.equal(u.searchParams.get("model_id"), ELEVENLABS_MODEL_ID);
+      assert.equal(u.searchParams.get("output_format"), "pcm_16000");
+      assert.equal(u.searchParams.get("inactivity_timeout"), "180");
+    }
+  } finally {
+    if (saved !== undefined) process.env.ELEVENLABS_WS_URL = saved;
+  }
+});
+
+test("session: ready echoes the language and lists only engines that speak it", () => {
+  const { factory } = fakeAgentFactory(async () => {});
+  const both = new FakeClientWs();
+  const a = new VoiceSession(both as unknown as WebSocket, { deepgramKey: "k", elevenLabsKey: "el", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
+  assert.equal(both.ofType("ready")[0].lang, "en");
+  assert.deepEqual(both.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs", "deepgram"] });
+  assert.equal(both.ofType("state")[0].session.lang, "en");
+  a.close();
+
+  const tr = new FakeClientWs();
+  const b = new VoiceSession(tr as unknown as WebSocket, { lang: "tr", deepgramKey: "k", elevenLabsKey: "el", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
+  assert.equal(tr.ofType("ready")[0].lang, "tr");
+  assert.deepEqual(tr.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs"] }, "Aura is English only");
+  assert.equal(tr.ofType("state")[0].session.lang, "tr");
+  b.close();
+
+  const auraOnly = new FakeClientWs();
+  const c = new VoiceSession(auraOnly as unknown as WebSocket, { lang: "tr", deepgramKey: "k", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
+  assert.deepEqual(auraOnly.ofType("ready")[0].voice, { stt: true, tts: false, ttsEngines: [] }, "text only: no engine speaks Turkish");
+  c.close();
+});
+
+test("session: a lang message switches the domain session and reopens Deepgram on the Turkish model at the next frame", async () => {
+  let domainSession: Session | undefined;
+  const { factory, calls } = fakeAgentFactory(async (emit, _signal, _text, session) => {
+    domainSession = session;
+    emit(delta("ok. "));
+  });
+  const ws = new FakeClientWs();
+  const logs: string[] = [];
+  const vs = new VoiceSession(ws as unknown as WebSocket, { deepgramKey: "test-key", createAgent: factory, log: (m) => logs.push(m) });
+  const before = dg.sockets.length;
+  ws.clientAudio(20);
+  const s1 = await dg.waitForSocket(before + 1);
+  assert.match(s1.url, /model=nova-3/);
+  assert.doesNotMatch(s1.url, /language=/);
+  for (let i = 0; i < 100 && s1.ws.readyState !== WebSocket.OPEN; i++) await sleep(5);
+
+  ws.clientJson({ type: "lang", lang: "tr" });
+  await sleep(50);
+  const states = ws.ofType("state");
+  assert.equal(states[states.length - 1].session.lang, "tr", "the state answer echoes the new language");
+  for (let i = 0; i < 150 && s1.ws.readyState !== WebSocket.CLOSED; i++) await sleep(10);
+  assert.equal(s1.ws.readyState, WebSocket.CLOSED, "the English socket was closed");
+  assert.equal(dg.sockets.length, before + 1, "no socket until the next audio frame");
+  assert.ok(logs.some((l) => l.includes("lang tr") && l.includes("nova-2 tr")), JSON.stringify(logs));
+  assert.deepEqual(ws.errors(), [], "a switch is not a failure: no toast, no backoff");
+
+  ws.clientAudio(20); // reopened at once: the switch did not arm the reconnect backoff
+  const s2 = await dg.waitForSocket(before + 2);
+  assert.match(s2.url, /model=nova-2&language=tr/);
+  await sleep(30);
+  dg.final("siparişim nerede", 10);
+  await sleep(150);
+  assert.deepEqual(calls, ["siparişim nerede"]);
+  assert.equal(domainSession?.lang, "tr", "the agent's domain session is Turkish now");
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0].source, "voice");
+
+  ws.clientJson({ type: "lang", lang: "de" });
+  await sleep(20);
+  assert.ok(ws.errors().some((m) => m.startsWith("Unknown lang: de")), JSON.stringify(ws.errors()));
+  assert.equal(domainSession?.lang, "tr", "an unknown lang changes nothing");
+  assert.equal(s2.ws.readyState, WebSocket.OPEN, "the Turkish socket stays");
+  vs.close();
+});
+
+test("session: a Turkish turn is spoken by ElevenLabs and never falls back to Aura", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Merhaba, siparişiniz Salı günü geliyor. "));
+  });
+  const ws = new FakeClientWs();
+  const elBefore = el.received.length;
+  const auraConnBefore = aura.connections;
+  const vs = new VoiceSession(ws as unknown as WebSocket, { lang: "tr", elevenLabsKey: "el-key", deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "text", text: "siparişim nerede" });
+  await sleep(500);
+  assert.deepEqual(el.received.slice(elBefore), ["Merhaba, siparişiniz Salı günü geliyor."]);
+  assert.equal(aura.connections, auraConnBefore, "no Aura socket for a Turkish turn");
+  assert.equal(ws.ofType("latency")[0]?.ttsEngine, "elevenlabs");
+  assert.ok(ws.audioBytes > 0);
+
+  // ElevenLabs failing twice: text only, one toast, still no Aura.
+  const firstEl = el.connections + 1;
+  el.failConnections.add(firstEl);
+  el.failConnections.add(firstEl + 1);
+  ws.clientJson({ type: "text", text: "tekrar" });
+  await sleep(600);
+  assert.equal(aura.connections, auraConnBefore, "Aura is not tried even when ElevenLabs is exhausted");
+  assert.equal(el.connections, firstEl + 1, "two ElevenLabs streams, then nothing");
+  assert.equal(ws.errors().filter((m) => m.startsWith("Speech synthesis error")).length, 1, JSON.stringify(ws.errors()));
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 2);
+  assert.equal(latency[1].ttsEngine, "none");
+  assert.equal(ws.ofType("agent_text").filter((m) => m.turnId === latency[1].turnId).map((m) => m.delta).join(""), "Merhaba, siparişiniz Salı günü geliyor. ", "text still flows");
+  vs.close();
+});
+
+test("session: switching to Turkish with only Aura configured says so once and the turn is text only", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Cevap. "));
+  });
+  const ws = new FakeClientWs();
+  const auraConnBefore = aura.connections;
+  const vs = new VoiceSession(ws as unknown as WebSocket, { deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "lang", lang: "tr" });
+  await sleep(20);
+  assert.equal(ws.errors().filter((m) => m.startsWith("No speech engine for tr")).length, 1, JSON.stringify(ws.errors()));
+  ws.clientJson({ type: "text", text: "merhaba" });
+  await sleep(300);
+  assert.equal(aura.connections, auraConnBefore, "no Aura socket");
+  assert.equal(ws.errors().length, 1, "no further toast on the turn");
+  assert.equal(ws.ofType("latency")[0]?.ttsEngine, "none");
+  assert.equal(ws.audioBytes, 0);
+  vs.close();
+});
+
+test("session: the filler is Turkish on a Turkish voice turn", async () => {
+  const { factory } = fakeAgentFactory(slowToolScript);
+  const ws = new FakeClientWs();
+  const receivedBefore = el.received.length;
+  const vs = new VoiceSession(ws as unknown as WebSocket, { lang: "tr", deepgramKey: "test-key", elevenLabsKey: "el-key", createAgent: factory, log: () => {} });
+  const socketsBefore = dg.sockets.length;
+  ws.clientAudio(20);
+  await dg.waitForSocket(socketsBefore + 1);
+  await sleep(30);
+  dg.final("HM-1042 teslimatını değiştir", 10);
+  await sleep(1300);
+  const texts = ws.ofType("agent_text").map((m) => m.delta);
+  assert.equal(texts[0], FILLER_TEXTS.tr + " ", JSON.stringify(texts));
+  assert.notEqual(FILLER_TEXTS.tr, FILLER_TEXT);
+  assert.ok(el.received.slice(receivedBefore).includes(FILLER_TEXTS.tr), "the Turkish filler reached TTS");
+  vs.close();
+});
+
+// ------------------------------------------------------------------ the assistant speaks first
+
+test("session: greet speaks the fixed greeting as a turn (agent_text, audio, latency source greet) and seeds the history once", async () => {
+  const { factory, calls, seeded } = fakeAgentFactory(async (emit) => {
+    emit(delta("Merhaba Anna. "));
+  });
+  const ws = new FakeClientWs();
+  const receivedBefore = el.received.length;
+  const vs = new VoiceSession(ws as unknown as WebSocket, { lang: "tr", elevenLabsKey: "el-key", createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "greet" });
+  await sleep(400);
+  const texts = ws.ofType("agent_text");
+  assert.equal(texts.length, 1, JSON.stringify(texts));
+  assert.equal(texts[0].delta, GREETINGS.tr);
+  assert.deepEqual(el.received.slice(receivedBefore), ["Merhaba, Hemma destek hattına ulaştınız.", "Mevcut bir siparişinizle ilgili yardımcı olabilirim.", "Kiminle görüşüyorum?"], "spoken sentence by sentence through the normal chunker");
+  assert.ok(ws.audioBytes > 0, "audio frames reached the client");
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0].source, "greet");
+  assert.equal(latency[0].turnId, texts[0].turnId);
+  assert.equal(latency[0].sttFinalMs, 0);
+  assert.equal(typeof latency[0].firstTokenMs, "number");
+  assert.ok(latency[0].firstAudioMs !== null);
+  assert.equal(latency[0].ttsEngine, "elevenlabs");
+  assert.equal(latency[0].cancelled, false);
+  assert.deepEqual(seeded, [GREETINGS.tr], "the greeting went into the agent history as an assistant message");
+  assert.deepEqual(calls, [], "no model call for the greeting");
+  const statesBefore = ws.ofType("state").length;
+
+  ws.clientJson({ type: "greet" }); // idempotent
+  await sleep(200);
+  assert.equal(ws.ofType("agent_text").length, 1, "a second greet is ignored");
+  assert.equal(ws.ofType("latency").length, 1);
+  assert.deepEqual(seeded, [GREETINGS.tr]);
+  assert.equal(ws.ofType("state").length, statesBefore);
+
+  ws.clientJson({ type: "text", text: "merhaba, ben Anna" });
+  await sleep(300);
+  assert.deepEqual(calls, ["merhaba, ben Anna"]);
+  assert.equal(ws.ofType("latency").length, 2);
+  assert.equal(ws.ofType("latency")[1].source, "text");
+
+  ws.clientJson({ type: "reset" });
+  await sleep(100);
+  ws.clientJson({ type: "greet" }); // a fresh session may be greeted again
+  await sleep(400);
+  const afterReset = ws.ofType("latency");
+  assert.equal(afterReset.length, 3);
+  assert.equal(afterReset[2].source, "greet");
+  assert.deepEqual(seeded, [GREETINGS.tr, GREETINGS.tr]);
+  vs.close();
+});
+
+test("session: greet after the conversation started is ignored; the English greeting is the default; no TTS is fine", async () => {
+  const { factory, seeded } = fakeAgentFactory(async (emit) => {
+    emit(delta("ok. "));
+  });
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "text", text: "hello" });
+  await sleep(200);
+  ws.clientJson({ type: "greet" });
+  await sleep(200);
+  assert.deepEqual(seeded, [], "no greeting once the customer has spoken");
+  assert.equal(ws.ofType("latency").length, 1);
+  vs.close();
+
+  const ws2 = new FakeClientWs();
+  const two = fakeAgentFactory(async () => {});
+  const vs2 = new VoiceSession(ws2 as unknown as WebSocket, { createAgent: two.factory, log: () => {} });
+  ws2.clientJson({ type: "greet" });
+  await sleep(100);
+  assert.equal(ws2.ofType("agent_text")[0]?.delta, GREETINGS.en);
+  const latency = ws2.ofType("latency")[0];
+  assert.equal(latency?.source, "greet");
+  assert.equal(latency?.ttsEngine, "none", "text only: no engine configured");
+  assert.deepEqual(two.seeded, [GREETINGS.en]);
+  vs2.close();
+});
+
+test("session: the greeting is the first assistant message pi sends to the model on the next turn", async () => {
+  const script = scriptedStreamFn([{ text: "Hi Anna, let me look that up." }]);
+  const ws = new FakeClientWs();
+  let sa: SupportAgent | undefined;
+  const vs = new VoiceSession(ws as unknown as WebSocket, {
+    log: () => {},
+    createAgent: (session, onEvent) => {
+      sa = createSupportAgent({ session, streamFn: script.streamFn, onEvent });
+      return sa;
+    },
+  });
+  ws.clientJson({ type: "greet" });
+  await sleep(100);
+  const history = sa!.agent.state.messages;
+  assert.equal(history.length, 1);
+  assert.equal(history[0].role, "assistant");
+  assert.equal(((history[0] as AssistantMessage).content[0] as TextContent).text, GREETINGS.en);
+  assert.equal((history[0] as AssistantMessage).stopReason, "stop");
+  ws.clientJson({ type: "text", text: "Hi, this is Anna Weber, HM-2201." });
+  for (let i = 0; i < 300 && ws.ofType("latency").length < 2; i++) await sleep(10);
+  const ctx = script.calls[0];
+  assert.ok(ctx, "the model was called for the text turn");
+  assert.deepEqual(
+    ctx.messages.map((m) => m.role),
+    ["assistant", "user"],
+    "the greeting precedes the customer's first line in the model's context",
+  );
+  assert.equal(ws.ofType("agent_text").map((m) => m.delta).join(""), `${GREETINGS.en}Hi Anna, let me look that up.`);
+  vs.close();
+});
+
+test("session: a barge-in during the greeting cuts the audio and does not re-answer anything", async () => {
+  const { factory, calls } = fakeAgentFactory(async () => {});
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, {
+    deepgramKey: "test-key",
+    elevenLabsKey: "el-key",
+    createAgent: factory,
+    resumeAfterBargeInMs: 100,
+    log: () => {},
+  });
+  const socketsBefore = dg.sockets.length;
+  ws.clientAudio(20);
+  await dg.waitForSocket(socketsBefore + 1);
+  ws.clientJson({ type: "greet" });
+  await sleep(300);
+  assert.ok(ws.audioBytes > 0);
+  assert.equal(ws.ofType("clear_audio").length, 0);
+  dg.speechStarted(); // the customer starts talking over the greeting (6 s of mock audio are still playing)
+  await sleep(300);
+  assert.equal(ws.ofType("clear_audio").length, 1, "playback cut");
+  assert.deepEqual(calls, [], "nothing is re-answered: a greeting has no question to repeat");
+  vs.close();
 });

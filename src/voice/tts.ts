@@ -5,6 +5,8 @@
  * bad turn, then Deepgram Aura under the same conditions, otherwise text only.
  */
 
+import type { Lang } from "../domain/lang";
+
 export type TtsEngineName = "elevenlabs" | "deepgram" | "none";
 export type TtsVendor = Exclude<TtsEngineName, "none">;
 
@@ -93,7 +95,13 @@ export interface TtsStream {
 
 export interface TtsEngine {
   readonly name: TtsVendor;
-  openStream(events: TtsStreamEvents): TtsStream;
+  /**
+   * Languages the engine can speak. The session only picks an engine that lists the turn's
+   * language: ElevenLabs flash v2.5 speaks English and Turkish with the same voice, Deepgram
+   * Aura (aura-2-thalia-en) is English only, so a Turkish turn never falls back to it.
+   */
+  readonly languages: readonly Lang[];
+  openStream(events: TtsStreamEvents, lang?: Lang): TtsStream;
 }
 
 let failSeq = 0;

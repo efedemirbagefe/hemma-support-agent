@@ -1,3 +1,5 @@
+import type { Lang } from "./lang";
+
 export type Tier = "standard" | "vip";
 export type OrderStatus = "processing" | "shipped" | "out_for_delivery" | "delivered";
 export type DeliveryWindow = "09-13" | "13-18";
@@ -87,6 +89,7 @@ export interface ToolLogEntry {
  * no runtime cycle.
  */
 export type { Scenario } from "./policies/index";
+export type { Lang } from "./lang";
 
 export interface DeliverySlot {
   date: string;
@@ -99,6 +102,8 @@ export interface DeliverySlot {
 export interface PlaybookContext {
   today: Date;
   delayDays: number;
+  /** Session language for labels and notes; English when omitted. */
+  lang?: Lang;
 }
 
 /** A playbook is data plus pure functions. No LLM involved. */

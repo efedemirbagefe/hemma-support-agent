@@ -8,7 +8,8 @@
  */
 import type { TtsEngineName, TtsVendor } from "./tts";
 
-export type TurnSource = "voice" | "text";
+/** voice: a Deepgram final; text: a typed message; greet: the fixed opening line, no model call. */
+export type TurnSource = "voice" | "text" | "greet";
 
 export interface LatencyReport {
   type: "latency";

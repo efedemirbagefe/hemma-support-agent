@@ -7,7 +7,8 @@
  *   4 escalation decided, 5 back to the sofa cover and Friday, 6 slots and the Friday morning
  *   choice, 7 confirmation and APPLIED, 8 a retry that must hit ALREADY_APPLIED.
  */
-import { today, weekdayName } from "../domain/clock";
+import { MONTH_NAMES, WEEKDAY_NAMES, today, weekdayName } from "../domain/clock";
+import { DEFAULT_LANG, type Lang } from "../domain/lang";
 import type { SessionSnapshot } from "../domain/session";
 import { hasDash } from "./speech";
 
@@ -87,7 +88,46 @@ export const ANNA = { name: "Anna Weber", ref: "HM-2201", phone: "+49 30 1234567
 export const RECENT_ORDER = "HM-1042";
 export const LAMP_ORDER = "HM-0977";
 export const FRIDAY_MORNING = { date: "2026-09-04", window: "09-13" } as const;
-const FILLER_HINT = /one moment, let me check/i;
+/** The voice layer's filler sentence in either language (FILLER_TEXTS in session-voice.ts). */
+const FILLER_HINT = /one moment, let me check|bir saniye, hemen bakıyorum/i;
+/** Text hints the evaluators look for, in both languages at once, so a step's verdict does not depend on the run language. */
+const RECENT_ORDER_HINT = /sofa cover|kanepe|HM-1042|1042/i;
+const NEXT_STEP_HINT = /colleague|business day|call(s|ed)? you back|get back to you|meslektaş|iş günü|geri ara|sizi ara|dönüş yap/i;
+const FRIDAY_HINT = /friday|cuma/i;
+
+/**
+ * The eight customer lines (and the tolerated clarifying line per step) per language. The
+ * Turkish lines say the same things, so the same tool order and guard outcomes are expected:
+ * "Evet, devam edin." is an affirmative for the guard, the step 8 line contains none.
+ */
+export const DEMO_LINES: Record<Lang, Record<string, string>> = {
+  en: {
+    step1: `Hi, this is ${ANNA.name}, my customer number is ${ANNA.ref}. What's happening with my most recent order?`,
+    step1Extra: `My phone number is ${ANNA.phone}.`,
+    step3: "Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.",
+    step3Extra: "The brass floor lamp, from my earlier order.",
+    step4Extra: "Yes, please do.",
+    step5: "Thanks. Now back to the sofa cover. Can you move the delivery to Friday?",
+    step5Extra: `The sofa cover, order ${RECENT_ORDER}.`,
+    step6: "The morning slot on Friday, please.",
+    step6Extra: "Friday morning, 9 to 1.",
+    step7: "Yes, go ahead.",
+    step8: "Sorry, did that go through? Book Friday morning again just to be safe.",
+  },
+  tr: {
+    step1: `Merhaba, ben ${ANNA.name}, müşteri numaram ${ANNA.ref}. En son siparişim ne durumda?`,
+    step1Extra: `Telefon numaram ${ANNA.phone}.`,
+    step3: "Aslında önce başka bir şey var. Daha önceki bir siparişimden gelen lamba hasarlı geldi, tabanı ezilmiş.",
+    step3Extra: "Pirinç zemin lambası, önceki siparişimden.",
+    step4Extra: "Evet, lütfen.",
+    step5: "Teşekkürler. Şimdi kanepe kılıfına dönelim. Teslimatı Cuma gününe alabilir misiniz?",
+    step5Extra: `Kanepe kılıfı, ${RECENT_ORDER} numaralı sipariş.`,
+    step6: "Cuma sabah saati lütfen.",
+    step6Extra: "Cuma sabahı, 9 ile 1 arası.",
+    step7: "Evet, devam edin.",
+    step8: "Pardon, işlem gerçekleşti mi? Garanti olsun diye Cuma sabahını tekrar ayarlayın.",
+  },
+};
 
 // ---------------------------------------------------------------- tool helpers
 
@@ -166,23 +206,35 @@ const DAY_RE = "(\\d{1,2})(?:st|nd|rd|th)?";
 const YEAR_RE = "(?:,?\\s+(\\d{4}))?";
 const DAY_FIRST = new RegExp(`\\b${WEEKDAY_RE},?\\s+(?:the\\s+)?${DAY_RE}\\s+(?:of\\s+)?${MONTH_RE}${YEAR_RE}`, "gi");
 const MONTH_FIRST = new RegExp(`\\b${WEEKDAY_RE},?\\s+${MONTH_RE}\\s+(?:the\\s+)?${DAY_RE}${YEAR_RE}`, "gi");
+// Turkish: "Cuma 4 Eylül 2026", "Cuma, 4 Eylül", "4 Eylül Cuma", "4 Eylül 2026 Cuma". No \b: it is
+// ASCII-only and would miss a name starting with Ç or Ş, so letter lookarounds guard both ends
+// (and keep "Pazar" from matching inside "Pazartesi", "Cuma" inside "Cumartesi").
+const longestFirst = (names: readonly string[]): string => [...names].sort((a, b) => b.length - a.length).join("|");
+const TR_WEEKDAY_RE = `(${longestFirst(WEEKDAY_NAMES.tr)})`;
+const TR_MONTH_RE = `(${longestFirst(MONTH_NAMES.tr)})`;
+const TR_WEEKDAY_FIRST = new RegExp(`(?<!\\p{L})${TR_WEEKDAY_RE},?\\s+(\\d{1,2})\\s+${TR_MONTH_RE}(?!\\p{L})(?:\\s+(\\d{4}))?`, "giu");
+const TR_DAY_FIRST = new RegExp(`(?<!\\p{L})(\\d{1,2})\\s+${TR_MONTH_RE}(?:\\s+(\\d{4}))?,?\\s+${TR_WEEKDAY_RE}(?!\\p{L})`, "giu");
+const lower = (s: string, lang: Lang): string => (lang === "tr" ? s.toLocaleLowerCase("tr") : s.toLowerCase());
 
 /**
- * Every "weekday + date" the agent says, checked against the calendar. Returns one line per
- * mismatch, e.g. `"Monday the 8th of September" is a Tuesday`. Year defaults to today's year.
+ * Every "weekday + date" the agent says, in English or Turkish, checked against the calendar.
+ * Returns one line per mismatch, e.g. `"Monday the 8th of September" is a Tuesday` or
+ * `"Cumartesi 4 Eylül" is a Cuma`. Year defaults to today's year.
  */
 export function weekdayMismatches(text: string, defaultYear = today().getUTCFullYear()): string[] {
   const out: string[] = [];
-  const check = (whole: string, claimed: string, day: number, month: string, year?: string) => {
-    const monthIdx = MONTHS.indexOf(month.toLowerCase());
+  const check = (lang: Lang, whole: string, claimed: string, day: number, month: string, year?: string) => {
+    const monthIdx = MONTH_NAMES[lang].findIndex((m) => lower(m, lang) === lower(month, lang));
     if (monthIdx < 0 || day < 1 || day > 31) return;
     const date = new Date(Date.UTC(year ? Number(year) : defaultYear, monthIdx, day));
     if (date.getUTCDate() !== day) return; // e.g. 31 September
-    const actual = weekdayName(date);
-    if (actual.toLowerCase() !== claimed.toLowerCase()) out.push(`"${whole}" is a ${actual}`);
+    const actual = weekdayName(date, lang);
+    if (lower(actual, lang) !== lower(claimed, lang)) out.push(`"${whole}" is a ${actual}`);
   };
-  for (const m of text.matchAll(DAY_FIRST)) check(m[0], m[1], Number(m[2]), m[3], m[4]);
-  for (const m of text.matchAll(MONTH_FIRST)) check(m[0], m[1], Number(m[3]), m[2], m[4]);
+  for (const m of text.matchAll(DAY_FIRST)) check("en", m[0], m[1], Number(m[2]), m[3], m[4]);
+  for (const m of text.matchAll(MONTH_FIRST)) check("en", m[0], m[1], Number(m[3]), m[2], m[4]);
+  for (const m of text.matchAll(TR_WEEKDAY_FIRST)) check("tr", m[0], m[1], Number(m[2]), m[3], m[4]);
+  for (const m of text.matchAll(TR_DAY_FIRST)) check("tr", m[0], m[4], Number(m[1]), m[2], m[3]);
   return out;
 }
 
@@ -206,17 +258,20 @@ function done(notes: string[], verdict: Verdict = "PASS"): StepResult {
   return { verdict, notes };
 }
 
-export const DEMO_STEPS: DemoStep[] = [
+/** The eight steps with the customer lines of `lang`; the evaluators are the same in both languages. */
+export function demoSteps(lang: Lang = DEFAULT_LANG): DemoStep[] {
+  const L = DEMO_LINES[lang];
+  return [
   {
     n: 1,
     title: "Most recent order",
-    say: `Hi, this is ${ANNA.name}, my customer number is ${ANNA.ref}. What's happening with my most recent order?`,
+    say: L.step1,
     evaluate(turns) {
       const notes: string[] = [];
       const found = calls(turns, "find_customer").some(ok);
       if (!found) {
         if (turns.length === 1 && !turns[0].extra) {
-          return { verdict: "FAIL", notes: ["find_customer not called"], extra: `My phone number is ${ANNA.phone}.` };
+          return { verdict: "FAIL", notes: ["find_customer not called"], extra: L.step1Extra };
         }
         return fail("find_customer never ran");
       }
@@ -228,7 +283,7 @@ export const DEMO_STEPS: DemoStep[] = [
         notes.push(`get_order ${RECENT_ORDER} not called; answered from find_customer's order list, which carries status, items and the labelled date`);
       }
       const text = turns.map((t) => t.text).join(" ");
-      if (!/sofa cover|HM-1042|1042/i.test(text)) {
+      if (!RECENT_ORDER_HINT.test(text)) {
         verdict = "WARN";
         notes.push("answer does not name the most recent order (sofa cover, HM-1042)");
       }
@@ -246,14 +301,14 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     n: 3,
     title: "Damaged lamp from the earlier order",
-    say: "Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.",
+    say: L.step3,
     evaluate(turns) {
       if (calls(turns, "apply_resolution").length) return fail("apply_resolution was called for the lamp; the EUR 240 order must go straight to escalation");
       const lamp = calls(turns, "get_order").some((c) => ok(c) && argOrderId(c) === LAMP_ORDER);
       if (!lamp) {
         const asked = /\?\s*$/.test(lastText(turns).trim());
         if (turns.length === 1 && !turns[0].extra && asked) {
-          return { verdict: "FAIL", notes: [`asked which order instead of matching the lamp to ${LAMP_ORDER} from the known orders`], extra: "The brass floor lamp, from my earlier order." };
+          return { verdict: "FAIL", notes: [`asked which order instead of matching the lamp to ${LAMP_ORDER} from the known orders`], extra: L.step3Extra };
         }
         return fail(`get_order ${LAMP_ORDER} not called`);
       }
@@ -273,7 +328,7 @@ export const DEMO_STEPS: DemoStep[] = [
       if (cases.length !== 1) {
         const own = turns.filter((t) => t.step === 4);
         if (escalated.length === 0 && own.length === 0) {
-          return { verdict: "FAIL", notes: ["no case opened for the lamp"], extra: "Yes, please do." };
+          return { verdict: "FAIL", notes: ["no case opened for the lamp"], extra: L.step4Extra };
         }
         return fail(`expected exactly one case for ${LAMP_ORDER}, state has ${cases.length}`);
       }
@@ -295,7 +350,7 @@ export const DEMO_STEPS: DemoStep[] = [
         verdict = "WARN";
         notes.push(`case id ${cases[0].id} not read out`);
       }
-      if (!/colleague|business day|call(s|ed)? you back|get back to you/i.test(text)) {
+      if (!NEXT_STEP_HINT.test(text)) {
         verdict = "WARN";
         notes.push("next step after the escalation (who follows up, when) not stated");
       }
@@ -305,14 +360,14 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     n: 5,
     title: "Back to the sofa cover: move delivery to Friday",
-    say: "Thanks. Now back to the sofa cover. Can you move the delivery to Friday?",
+    say: L.step5,
     evaluate(turns) {
       const notes: string[] = [];
       const slots = calls(turns, "get_delivery_slots").some((c) => ok(c) && argOrderId(c) === RECENT_ORDER);
       if (!slots) {
         const asked = /\?\s*$/.test(lastText(turns).trim());
         if (turns.length === 1 && !turns[0].extra && asked) {
-          return { verdict: "FAIL", notes: ["get_delivery_slots not called"], extra: `The sofa cover, order ${RECENT_ORDER}.` };
+          return { verdict: "FAIL", notes: ["get_delivery_slots not called"], extra: L.step5Extra };
         }
         return fail(`get_delivery_slots ${RECENT_ORDER} not called`);
       }
@@ -320,7 +375,7 @@ export const DEMO_STEPS: DemoStep[] = [
       if ((state?.applied.length ?? 0) !== 0) return fail("a reschedule was applied without a yes");
       let verdict: Verdict = "PASS";
       if (calls(turns, "apply_resolution").some((c) => applyStatus(c) === "NEEDS_CONFIRMATION")) notes.push("proposed a Friday slot right away (NEEDS_CONFIRMATION registered)");
-      if (!/friday/i.test(turns.map((t) => t.text).join(" "))) {
+      if (!FRIDAY_HINT.test(turns.map((t) => t.text).join(" "))) {
         verdict = "WARN";
         notes.push("Friday not mentioned in the answer");
       }
@@ -330,7 +385,7 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     n: 6,
     title: "Friday morning chosen, proposal registered",
-    say: "The morning slot on Friday, please.",
+    say: L.step6,
     evaluate(turns, all) {
       const notes: string[] = [];
       const state = lastState(turns);
@@ -342,7 +397,7 @@ export const DEMO_STEPS: DemoStep[] = [
           return {
             verdict: "FAIL",
             notes: [pending ? `pending is ${pending.orderId} ${JSON.stringify(pending.params)}, expected Friday 09-13` : "no pending proposal"],
-            extra: "Friday morning, 9 to 1.",
+            extra: L.step6Extra,
           };
         }
         return fail(pending ? `pending is ${pending.orderId} ${JSON.stringify(pending.params)}, expected ${RECENT_ORDER} Friday 09-13` : "no pending proposal registered");
@@ -364,7 +419,7 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     n: 7,
     title: "Yes: applied once with a receipt",
-    say: "Yes, go ahead.",
+    say: L.step7,
     evaluate(turns) {
       const notes: string[] = [];
       const state = lastState(turns);
@@ -372,7 +427,7 @@ export const DEMO_STEPS: DemoStep[] = [
       if (applied.length === 0) {
         const reasked = calls(turns, "apply_resolution").some((c) => applyStatus(c) === "NEEDS_CONFIRMATION");
         if (turns.length === 1 && !turns[0].extra && reasked) {
-          return { verdict: "FAIL", notes: ["asked for confirmation again instead of applying"], extra: "Yes, go ahead." };
+          return { verdict: "FAIL", notes: ["asked for confirmation again instead of applying"], extra: L.step7 };
         }
         return fail("nothing applied after the yes");
       }
@@ -403,7 +458,7 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     n: 8,
     title: "Retry: ALREADY_APPLIED, ledger unchanged",
-    say: "Sorry, did that go through? Book Friday morning again just to be safe.",
+    say: L.step8,
     evaluate(turns, all) {
       const notes: string[] = [];
       const state = lastState(turns);
@@ -431,7 +486,11 @@ export const DEMO_STEPS: DemoStep[] = [
       return done(notes, verdict);
     },
   },
-];
+  ];
+}
+
+/** The English steps (the brief's wording). */
+export const DEMO_STEPS: DemoStep[] = demoSteps("en");
 
 // ---------------------------------------------------------------- runner
 
@@ -440,6 +499,8 @@ export interface DemoRunner {
   sendTurn(text: string, step: number, extra: boolean): Promise<TurnRecord>;
   /** False when the run is over voice; the filler lint only applies to text turns. */
   textMode?: boolean;
+  /** Language of the customer lines (demoSteps(lang)); ignored when `steps` is given. */
+  lang?: Lang;
   log?(line: string): void;
   steps?: DemoStep[];
 }
@@ -475,7 +536,7 @@ function describeTool(t: ToolSeen): string {
 }
 
 export async function runDemo(runner: DemoRunner): Promise<DemoReport> {
-  const steps = runner.steps ?? DEMO_STEPS;
+  const steps = runner.steps ?? demoSteps(runner.lang ?? DEFAULT_LANG);
   const textMode = runner.textMode ?? true;
   const log = runner.log ?? (() => undefined);
   const turns: TurnRecord[] = [];

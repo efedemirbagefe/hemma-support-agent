@@ -1,17 +1,18 @@
 /**
  * One browser connection = one VoiceSession: a domain Session, a SupportAgent, a Deepgram
  * STT socket (opened on the first mic frame, reopened with a backoff if it drops) and (per
- * turn) a TTS stream: ElevenLabs first, Deepgram Aura as the fallback. See README-voice.md
- * for the turn lifecycle and where each latency timestamp is taken.
+ * turn) a TTS stream: ElevenLabs first, Deepgram Aura as the fallback (English turns only).
+ * See README-voice.md for the turn lifecycle and where each latency timestamp is taken.
  */
 import { randomBytes } from "node:crypto";
 import type WebSocket from "ws";
 import type { RawData } from "ws";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { createSupportAgent, type SupportAgent } from "../agent/createAgent";
+import { DEFAULT_LANG, parseLang, type Lang } from "../domain/lang";
 import { Session, type SessionSnapshot } from "../domain/session";
 import { ChaosState, instrumentTools, type ChaosFlag } from "./chaos";
-import { DeepgramStt } from "./deepgram";
+import { DeepgramStt, describeSttModel } from "./deepgram";
 import { DeepgramTts } from "./deepgram-tts";
 import { ElevenLabsTts } from "./elevenlabs";
 import { SentenceChunker } from "./chunker";
@@ -19,7 +20,20 @@ import { TurnLatency, logLatencyLine, pcmBytesToMs, type LatencyReport, type Tur
 import { FailingTtsStream, type TtsEngine, type TtsEngineName, type TtsStream, type TtsVendor } from "./tts";
 
 export const FILLER_AFTER_MS = 700;
-export const FILLER_TEXT = "One moment, let me check that.";
+/** Spoken while the model is still working after a tool call, per language. */
+export const FILLER_TEXTS: Record<Lang, string> = {
+  en: "One moment, let me check that.",
+  tr: "Bir saniye, hemen bakıyorum.",
+};
+export const FILLER_TEXT = FILLER_TEXTS.en;
+/**
+ * The assistant speaks first: a fixed opening line per language, spoken on `{type:"greet"}`
+ * without a model call and written into the model's history as its own first message.
+ */
+export const GREETINGS: Record<Lang, string> = {
+  en: "Hi, you've reached Hemma support. I can help with an existing order. Who am I speaking with?",
+  tr: "Merhaba, Hemma destek hattına ulaştınız. Mevcut bir siparişinizle ilgili yardımcı olabilirim. Kiminle görüşüyorum?",
+};
 /** How long after a turn ends we wait for the client's `played` report before writing the stdout line. */
 export const PLAYED_GRACE_MS = 2000;
 /**
@@ -57,6 +71,8 @@ export interface VoiceSessionOptions {
   deepgramTtsKey?: string;
   voiceId?: string;
   modelId?: string;
+  /** Session language from the /ws URL (`?lang=en|tr`); "en" by default. */
+  lang?: Lang;
   /** Demo chaos toggles from the /ws URL (`?fail=tool,tts,stt`). Off by default. */
   chaos?: ChaosFlag[];
   log?: (msg: string) => void;
@@ -71,6 +87,8 @@ export interface VoiceSessionOptions {
 export type ClientMessage =
   | { type: "text"; text: string }
   | { type: "played"; turnId: string; t?: number }
+  | { type: "lang"; lang: Lang }
+  | { type: "greet" }
   | { type: "reset" };
 
 export type { SessionSnapshot };
@@ -79,6 +97,7 @@ export type ServerMessage =
   | {
       type: "ready";
       sessionId: string;
+      lang: Lang;
       voice: { stt: boolean; tts: boolean; ttsEngines: TtsVendor[] };
       chaos: ChaosFlag[];
     }
@@ -108,6 +127,8 @@ interface ToolRun {
 interface Turn {
   id: string;
   source: TurnSource;
+  /** Language the turn is spoken in (engine choice, filler); fixed when the turn starts. */
+  lang: Lang;
   /** What the customer said (or typed); re-sent when a barge-in produced no transcript. */
   userText: string;
   /** How many times this question has already been re-answered after silent barge-ins. */
@@ -174,6 +195,9 @@ export class VoiceSession {
   private chaos: ChaosState;
   /** Engines resting after MAX_TTS_STREAMS_PER_ENGINE failures in one turn: name -> wall time the rest ends. */
   private engineDownUntil: Partial<Record<TtsVendor, number>> = {};
+  private lang: Lang;
+  /** The greeting is spoken at most once per session (a reset starts a new session). */
+  private greeted = false;
   private turn?: Turn;
   private readonly recentTurns = new Map<string, Turn>();
   private turnSeq = 0;
@@ -194,6 +218,7 @@ export class VoiceSession {
   ) {
     this.id = randomBytes(4).toString("hex");
     this.log = opts.log ?? ((m) => console.error(`[voice ${this.id}] ${m}`));
+    this.lang = opts.lang ?? DEFAULT_LANG;
     this.chaos = new ChaosState(opts.chaos ?? []);
     const engines: TtsEngine[] = [];
     if (opts.elevenLabsKey) engines.push(new ElevenLabsTts(opts.elevenLabsKey, opts.voiceId));
@@ -210,7 +235,8 @@ export class VoiceSession {
     this.send({
       type: "ready",
       sessionId: this.session.id,
-      voice: { stt: !!opts.deepgramKey, tts: engines.length > 0, ttsEngines: engines.map((e) => e.name) },
+      lang: this.lang,
+      voice: this.voiceFeatures(this.lang),
       chaos: this.chaos.list,
     });
     this.send({ type: "state", session: snapshotSession(this.session) });
@@ -220,7 +246,7 @@ export class VoiceSession {
   // ---------------------------------------------------------------- wiring
 
   private createAgent(): void {
-    this.session = new Session();
+    this.session = new Session({ lang: this.lang });
     this.agentError = undefined;
     try {
       this.support = this.opts.createAgent
@@ -249,6 +275,17 @@ export class VoiceSession {
     agent.state.tools = instrumentTools(tools, this.chaos);
   }
 
+  /** Engines that can speak `lang`, in preference order: Aura is English only, so a Turkish turn has ElevenLabs or nothing. */
+  private enginesFor(lang: Lang): TtsEngine[] {
+    return this.engines.filter((e) => e.languages.includes(lang));
+  }
+
+  /** What the `ready` event reports for a language: STT is per key, TTS per engine language. */
+  private voiceFeatures(lang: Lang): { stt: boolean; tts: boolean; ttsEngines: TtsVendor[] } {
+    const engines = this.enginesFor(lang);
+    return { stt: !!this.opts.deepgramKey, tts: engines.length > 0, ttsEngines: engines.map((e) => e.name) };
+  }
+
   /**
    * Make sure a Deepgram socket exists (or is connecting). Returns false while a reconnect
    * backoff is pending or after the attempts are exhausted (until the cooldown passes).
@@ -268,65 +305,70 @@ export class VoiceSession {
   private openStt(key: string): void {
     let inst: DeepgramStt | undefined;
     const attempt = this.sttAttempts;
-    inst = new DeepgramStt(key, {
-      onOpen: () => {
-        if (this.stt !== inst) return;
-        this.sttAttempts = 0;
-        this.sttErrorToasted = false;
-        this.log(attempt > 0 ? `deepgram open (reconnected after ${attempt} failure(s))` : "deepgram open");
+    const lang = this.lang;
+    inst = new DeepgramStt(
+      key,
+      {
+        onOpen: () => {
+          if (this.stt !== inst) return;
+          this.sttAttempts = 0;
+          this.sttErrorToasted = false;
+          this.log(`deepgram open (${describeSttModel(lang)})${attempt > 0 ? ` (reconnected after ${attempt} failure(s))` : ""}`);
+        },
+        onInterim: (text) => {
+          if (this.stt !== inst) return;
+          this.lastInterimAt = Date.now();
+          this.send({ type: "stt", text, final: false });
+        },
+        onFinal: (text, meta) => {
+          if (this.stt !== inst) return;
+          const t0 = Date.now();
+          const sttFinalMs = meta.speechEndWall === undefined ? 0 : Math.max(0, t0 - meta.speechEndWall);
+          this.send({ type: "stt", text, final: true });
+          this.onUserFinal(text, "voice", t0, sttFinalMs);
+          if (this.chaos.takeSttDrop()) {
+            // Simulated network drop: the socket goes away once, the reconnect path brings it back.
+            this.log("chaos fail=stt: closing the Deepgram socket after the first final");
+            this.send({
+              type: "error",
+              message: "Chaos fail=stt: speech recognition socket dropped; it reconnects on the next audio frame.",
+            });
+            inst!.close();
+          }
+        },
+        onSpeechStarted: () => {
+          if (this.stt !== inst) return;
+          this.onSpeechStarted();
+        },
+        onError: (err) => {
+          if (this.stt !== inst) return;
+          this.log(`deepgram error: ${err.message}`);
+          if (!this.sttErrorToasted) {
+            this.sttErrorToasted = true;
+            this.send({ type: "error", message: `Speech recognition error: ${err.message}` });
+          }
+        },
+        onClose: (code, reason) => {
+          if (this.stt !== inst) return;
+          this.stt = undefined;
+          if (this.closed) return;
+          this.sttAttempts++;
+          this.sttLastFailAt = Date.now();
+          if (this.sttAttempts >= STT_RECONNECT_BACKOFF_MS.length) {
+            this.log(`deepgram closed ${code} ${reason}; giving up after ${this.sttAttempts} attempts`);
+            this.send({
+              type: "error",
+              message: `Speech recognition disconnected (${code}). Use the text input, or stop and start the mic in a minute.`,
+            });
+            return;
+          }
+          const wait = STT_RECONNECT_BACKOFF_MS[this.sttAttempts - 1];
+          this.sttRetryAt = Date.now() + wait;
+          this.log(`deepgram closed ${code} ${reason}; reconnecting on next audio after ${wait} ms`);
+        },
       },
-      onInterim: (text) => {
-        if (this.stt !== inst) return;
-        this.lastInterimAt = Date.now();
-        this.send({ type: "stt", text, final: false });
-      },
-      onFinal: (text, meta) => {
-        if (this.stt !== inst) return;
-        const t0 = Date.now();
-        const sttFinalMs = meta.speechEndWall === undefined ? 0 : Math.max(0, t0 - meta.speechEndWall);
-        this.send({ type: "stt", text, final: true });
-        this.onUserFinal(text, "voice", t0, sttFinalMs);
-        if (this.chaos.takeSttDrop()) {
-          // Simulated network drop: the socket goes away once, the reconnect path brings it back.
-          this.log("chaos fail=stt: closing the Deepgram socket after the first final");
-          this.send({
-            type: "error",
-            message: "Chaos fail=stt: speech recognition socket dropped; it reconnects on the next audio frame.",
-          });
-          inst!.close();
-        }
-      },
-      onSpeechStarted: () => {
-        if (this.stt !== inst) return;
-        this.onSpeechStarted();
-      },
-      onError: (err) => {
-        if (this.stt !== inst) return;
-        this.log(`deepgram error: ${err.message}`);
-        if (!this.sttErrorToasted) {
-          this.sttErrorToasted = true;
-          this.send({ type: "error", message: `Speech recognition error: ${err.message}` });
-        }
-      },
-      onClose: (code, reason) => {
-        if (this.stt !== inst) return;
-        this.stt = undefined;
-        if (this.closed) return;
-        this.sttAttempts++;
-        this.sttLastFailAt = Date.now();
-        if (this.sttAttempts >= STT_RECONNECT_BACKOFF_MS.length) {
-          this.log(`deepgram closed ${code} ${reason}; giving up after ${this.sttAttempts} attempts`);
-          this.send({
-            type: "error",
-            message: `Speech recognition disconnected (${code}). Use the text input, or stop and start the mic in a minute.`,
-          });
-          return;
-        }
-        const wait = STT_RECONNECT_BACKOFF_MS[this.sttAttempts - 1];
-        this.sttRetryAt = Date.now() + wait;
-        this.log(`deepgram closed ${code} ${reason}; reconnecting on next audio after ${wait} ms`);
-      },
-    });
+      lang,
+    );
     this.stt = inst;
   }
 
@@ -356,6 +398,18 @@ export class VoiceSession {
       }
       case "played":
         this.onPlayed(String(msg.turnId ?? ""), Date.now());
+        return;
+      case "lang": {
+        const lang = parseLang(msg.lang);
+        if (!lang) {
+          this.send({ type: "error", message: `Unknown lang: ${String((msg as { lang?: unknown }).lang)} (use en or tr).` });
+          return;
+        }
+        this.setLang(lang);
+        return;
+      }
+      case "greet":
+        this.greet();
         return;
       case "reset":
         this.reset();
@@ -388,6 +442,37 @@ export class VoiceSession {
     this.ws.send(pcm, { binary: true });
   }
 
+  // ---------------------------------------------------------------- language
+
+  /**
+   * Switch the session language for the rest of the connection: the domain Session (labels,
+   * summaries, prompt) follows at once; the Deepgram socket is fixed to one model, so an open one
+   * is dropped and the next audio frame opens one on the new model (speech in flight is lost, so
+   * switch between turns). Answered with a `state` whose `session.lang` echoes the new value.
+   */
+  private setLang(lang: Lang): void {
+    const changed = lang !== this.lang;
+    this.lang = lang;
+    this.session.lang = lang;
+    if (changed) {
+      const stt = this.stt;
+      if (stt) {
+        this.stt = undefined; // its close event is ignored: not a failure, no backoff
+        stt.close();
+        this.log(`lang ${lang}: deepgram socket closed, the next audio frame reopens it on ${describeSttModel(lang)}`);
+      } else {
+        this.log(`lang ${lang}`);
+      }
+      if (this.engines.length > 0 && this.enginesFor(lang).length === 0) {
+        this.send({
+          type: "error",
+          message: `No speech engine for ${lang} (${this.engines.map((e) => e.name).join(", ")} configured); answers continue as text.`,
+        });
+      }
+    }
+    this.send({ type: "state", session: snapshotSession(this.session) });
+  }
+
   // ---------------------------------------------------------------- turn lifecycle
 
   private onUserFinal(text: string, source: TurnSource, t0: number, sttFinalMs: number): void {
@@ -407,22 +492,13 @@ export class VoiceSession {
     });
   }
 
-  private async runTurn(text: string, source: TurnSource, t0: number, sttFinalMs: number, meta: TurnMeta): Promise<void> {
-    if (this.closed) return;
-    if (!this.support) {
-      this.send({ type: "error", message: `Agent unavailable: ${this.agentError ?? "not configured"}` });
-      return;
-    }
-    if (this.support.isBusy()) {
-      this.support.abort();
-      await this.support.agent.waitForIdle();
-    }
-    if (this.closed) return;
-
+  private newTurn(text: string, source: TurnSource, t0: number, sttFinalMs: number, meta: TurnMeta): Turn {
     const id = `t${++this.turnSeq}-${randomBytes(2).toString("hex")}`;
+    const lang = this.lang;
     const turn: Turn = {
       id,
       source,
+      lang,
       userText: text,
       resumes: meta.resumes ?? 0,
       resumedFrom: meta.resumedFrom,
@@ -438,7 +514,7 @@ export class VoiceSession {
       ttsFailed: false,
       ttsBytes: 0,
       agentDone: false,
-      ttsDone: this.engines.length === 0,
+      ttsDone: this.enginesFor(lang).length === 0,
       finalized: false,
       logged: false,
       text: "",
@@ -446,8 +522,23 @@ export class VoiceSession {
     this.turn = turn;
     this.rememberTurn(turn);
     // Open the TTS socket now so its connect time hides behind the model's first token.
-    if (this.engines.length > 0) turn.tts = this.openTtsStream(turn);
+    if (this.enginesFor(lang).length > 0) turn.tts = this.openTtsStream(turn);
+    return turn;
+  }
 
+  private async runTurn(text: string, source: TurnSource, t0: number, sttFinalMs: number, meta: TurnMeta): Promise<void> {
+    if (this.closed) return;
+    if (!this.support) {
+      this.send({ type: "error", message: `Agent unavailable: ${this.agentError ?? "not configured"}` });
+      return;
+    }
+    if (this.support.isBusy()) {
+      this.support.abort();
+      await this.support.agent.waitForIdle();
+    }
+    if (this.closed) return;
+
+    const turn = this.newTurn(text, source, t0, sttFinalMs, meta);
     try {
       await this.support.sendUserText(text);
     } catch (err) {
@@ -457,6 +548,48 @@ export class VoiceSession {
     }
     // agent_end normally got here first; this is the safety net.
     if (!turn.agentDone) this.onAgentDone(turn);
+  }
+
+  /**
+   * `{type:"greet"}`: speak the fixed opening line as a normal turn (turn id, one agent_text
+   * delta, TTS audio, a latency event with source "greet") without a model call, and put it into
+   * the model's history as its first assistant message so it does not greet again. Honoured
+   * once per session and only before the first turn; later greets are ignored.
+   */
+  private greet(): void {
+    if (this.greeted || this.turnSeq > 0) {
+      this.log(this.greeted ? "greet ignored: already greeted this session" : "greet ignored: the conversation already started");
+      return;
+    }
+    this.greeted = true;
+    const t0 = Date.now();
+    this.queue = this.queue.then(() => this.runGreeting(t0)).catch((err) => {
+      this.log(`greeting failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+
+  private async runGreeting(t0: number): Promise<void> {
+    if (this.closed || this.turnSeq > 0) return;
+    if (this.support?.isBusy()) {
+      this.support.abort();
+      await this.support.agent.waitForIdle();
+    }
+    if (this.closed) return;
+    const text = GREETINGS[this.lang];
+    const turn = this.newTurn("", "greet", t0, 0, {});
+    // Fixed text: the whole answer is one delta, "first token" is now.
+    turn.latency.markFirstToken();
+    turn.text = text;
+    this.send({ type: "agent_text", turnId: turn.id, delta: text });
+    for (const chunk of turn.chunker.push(`${text} `)) this.speak(turn, chunk);
+    if (this.support) {
+      try {
+        this.support.addAssistantMessage(text);
+      } catch (err) {
+        this.log(`greeting not recorded in the agent history: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    this.onAgentDone(turn);
   }
 
   private onAgentEvent(e: AgentEvent): void {
@@ -598,6 +731,7 @@ export class VoiceSession {
     }
     logLatencyLine(turn.latency.report(), {
       sessionId: this.session.id,
+      lang: turn.lang,
       audioMs: Math.round(pcmBytesToMs(turn.ttsBytes)),
       chars: turn.text.length,
       ...(turn.resumedFrom ? { resumedFrom: turn.resumedFrom } : {}),
@@ -633,7 +767,7 @@ export class VoiceSession {
   }
 
   private speak(turn: Turn, text: string): void {
-    if (turn.cancelled || turn.ttsFailed || this.engines.length === 0) return;
+    if (turn.cancelled || turn.ttsFailed || this.enginesFor(turn.lang).length === 0) return;
     // A stream that stopped being writable without reporting an error is in its close handshake
     // (close frame received, TCP close pending): text written to it would vanish, so retire it
     // through the failure path first. That may open the replacement or give up for the turn.
@@ -644,8 +778,8 @@ export class VoiceSession {
       if (!next) {
         // Every engine is resting after repeated failures (or used up): text only for this turn.
         turn.ttsFailed = true;
-        this.log(`tts unavailable (${turn.id}): ${this.describeEngines()}`);
-        this.send({ type: "error", message: `Speech synthesis unavailable (${this.describeEngines()}); the answer continues as text.` });
+        this.log(`tts unavailable (${turn.id}): ${this.describeEngines(turn.lang)}`);
+        this.send({ type: "error", message: `Speech synthesis unavailable (${this.describeEngines(turn.lang)}); the answer continues as text.` });
         return;
       }
       turn.tts = next;
@@ -656,12 +790,12 @@ export class VoiceSession {
   }
 
   /**
-   * First engine that still has a stream left this turn and is not resting, in preference
-   * order. A rest that has run out is lifted here, on the first pick after it.
+   * First engine that speaks the turn's language, still has a stream left this turn and is not
+   * resting, in preference order. A rest that has run out is lifted here, on the first pick after it.
    */
   private pickEngine(turn: Turn): TtsEngine | undefined {
     const now = Date.now();
-    return this.engines.find((e) => {
+    return this.enginesFor(turn.lang).find((e) => {
       if (turn.ttsFailures[e.name] >= MAX_TTS_STREAMS_PER_ENGINE) return false;
       const downUntil = this.engineDownUntil[e.name];
       if (downUntil !== undefined) {
@@ -673,10 +807,10 @@ export class VoiceSession {
     });
   }
 
-  /** Engine names with their rest state, for logs and the one toast a text-only turn gets. */
-  private describeEngines(): string {
+  /** Engine names (for the language) with their rest state, for logs and the one toast a text-only turn gets. */
+  private describeEngines(lang: Lang): string {
     const now = Date.now();
-    return this.engines
+    return this.enginesFor(lang)
       .map((e) => {
         const until = this.engineDownUntil[e.name];
         return until !== undefined && until > now ? `${e.name} resting ${Math.ceil((until - now) / 1000)} s after repeated failures` : e.name;
@@ -736,7 +870,7 @@ export class VoiceSession {
       // ordinary retry / fallback path below carries the sentences to Aura.
       return new FailingTtsStream("elevenlabs", events, "chaos fail=tts");
     }
-    return engine.openStream(events);
+    return engine.openStream(events, turn.lang);
   }
 
   private onTtsError(turn: Turn, stream: TtsStream, err: Error): void {
@@ -770,7 +904,7 @@ export class VoiceSession {
     // audio cannot have covered (biased toward repeating one rather than losing one); a flushed
     // stream whose audio covered everything lost at most the tail of its last sentence, which
     // cannot be re-sent. The replacement comes from the same engine while it has a stream
-    // left, then from the next engine.
+    // left, then from the next engine that speaks the turn's language.
     const next = lost.length > 0 || !stream.flushWasRequested ? this.openTtsStream(turn) : undefined;
     if (next) {
       turn.tts = next;
@@ -796,7 +930,7 @@ export class VoiceSession {
    * spoken, the model is already streaming its answer, or the turn ended.
    */
   private armFiller(turn: Turn): void {
-    if (turn.source !== "voice" || this.engines.length === 0) return;
+    if (turn.source !== "voice" || this.enginesFor(turn.lang).length === 0) return;
     if (turn.fillerSent || turn.spoke || turn.cancelled || turn.fillerTimer || turn.ttsFailed) return;
     const textLenAtArm = turn.text.length;
     turn.fillerTimer = setTimeout(() => {
@@ -805,8 +939,9 @@ export class VoiceSession {
       // The answer is already streaming: its first sentence is moments away, a filler would only delay it.
       if (turn.text.length > textLenAtArm) return;
       turn.fillerSent = true;
-      this.send({ type: "agent_text", turnId: turn.id, delta: FILLER_TEXT + " " });
-      this.speak(turn, FILLER_TEXT);
+      const filler = FILLER_TEXTS[turn.lang];
+      this.send({ type: "agent_text", turnId: turn.id, delta: filler + " " });
+      this.speak(turn, filler);
     }, FILLER_AFTER_MS);
   }
 
@@ -846,7 +981,8 @@ export class VoiceSession {
 
   /**
    * After a barge-in cancel, wait for the customer's transcript. If none arrives (and interims
-   * are not still flowing) the interrupted question is answered again.
+   * are not still flowing) the interrupted question is answered again. A greeting has no
+   * question to repeat (empty userText), so it is simply cut.
    */
   private armResume(turn: Turn): void {
     this.clearResume();
@@ -913,6 +1049,8 @@ export class VoiceSession {
           await this.support.agent.waitForIdle();
         }
         this.turn = undefined;
+        this.turnSeq = 0;
+        this.greeted = false; // a fresh session may be greeted again
         // A reset re-arms the one-shot chaos failures so the demo can be replayed on one tab,
         // and lifts any engine rest for the same reason.
         this.chaos = new ChaosState(this.opts.chaos ?? []);

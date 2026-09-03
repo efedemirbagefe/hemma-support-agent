@@ -4,11 +4,42 @@
  * it with a backoff on the next audio frame).
  */
 import WebSocket from "ws";
+import { DEFAULT_LANG, type Lang } from "../domain/lang";
 import { vendorUrlOverride } from "./vendor-url";
 
-export const DEEPGRAM_URL =
-  "wss://api.deepgram.com/v1/listen?model=nova-3&encoding=linear16&sample_rate=16000&channels=1" +
-  "&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true&smart_format=true";
+/**
+ * Listen model per language. Nova-3 does not list Turkish, so "tr" runs on nova-2 with an
+ * explicit language; English keeps nova-3 (auto language). Measured 2026-09-03
+ * (scratch/vendor-dg-live-lang.ts, macOS `say -v Yelda` clip): nova-2 tr returned
+ * "Merhaba, en son siparişim ne durumda?" exactly, confidence 0.97, speech_final after 300 ms
+ * endpointing like the English socket.
+ */
+export const DEEPGRAM_STT_MODELS: Record<Lang, { model: string; language?: string }> = {
+  en: { model: "nova-3" },
+  tr: { model: "nova-2", language: "tr" },
+};
+
+/** Everything but the model: identical for both languages. */
+const LISTEN_PARAMS =
+  "encoding=linear16&sample_rate=16000&channels=1&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true&smart_format=true";
+
+export function deepgramListenQuery(lang: Lang = DEFAULT_LANG): string {
+  const m = DEEPGRAM_STT_MODELS[lang];
+  return `model=${m.model}${m.language ? `&language=${m.language}` : ""}&${LISTEN_PARAMS}`;
+}
+
+export function deepgramListenUrl(lang: Lang = DEFAULT_LANG): string {
+  return `wss://api.deepgram.com/v1/listen?${deepgramListenQuery(lang)}`;
+}
+
+/** Short model name for logs: "nova-3" or "nova-2 tr". */
+export function describeSttModel(lang: Lang): string {
+  const m = DEEPGRAM_STT_MODELS[lang];
+  return m.language ? `${m.model} ${m.language}` : m.model;
+}
+
+/** The English socket URL as documented in CONTRACTS.md. */
+export const DEEPGRAM_URL = deepgramListenUrl("en");
 
 export const KEEPALIVE_INTERVAL_MS = 8000;
 /** PCM 16 kHz mono Int16: 32 bytes per millisecond. */
@@ -18,10 +49,13 @@ export const PRE_OPEN_BUFFER_BYTES = 2000 * PCM_BYTES_PER_MS;
 
 /**
  * Test hook: DEEPGRAM_WS_URL points the client at a mock server (loopback, or any host with
- * ALLOW_VENDOR_URL_OVERRIDE=1; see vendor-url.ts). Production uses DEEPGRAM_URL.
+ * ALLOW_VENDOR_URL_OVERRIDE=1; see vendor-url.ts); the model query is appended so a mock can
+ * see which model a socket asked for. Production uses deepgramListenUrl(lang).
  */
-function resolveUrl(): string {
-  return vendorUrlOverride("DEEPGRAM_WS_URL") ?? DEEPGRAM_URL;
+function resolveUrl(lang: Lang): string {
+  const override = vendorUrlOverride("DEEPGRAM_WS_URL");
+  if (!override) return deepgramListenUrl(lang);
+  return `${override}${override.includes("?") ? "&" : "?"}${deepgramListenQuery(lang)}`;
 }
 
 export interface FinalMeta {
@@ -77,8 +111,12 @@ export class DeepgramStt {
   private preOpenBytes = 0;
   private dropped = 0;
 
-  constructor(apiKey: string, private readonly events: DeepgramEvents) {
-    this.ws = new WebSocket(resolveUrl(), { headers: { Authorization: `Token ${apiKey}` } });
+  constructor(
+    apiKey: string,
+    private readonly events: DeepgramEvents,
+    readonly lang: Lang = DEFAULT_LANG,
+  ) {
+    this.ws = new WebSocket(resolveUrl(lang), { headers: { Authorization: `Token ${apiKey}` } });
     this.ws.on("open", () => {
       this.opened = true;
       this.keepAlive = setInterval(() => this.sendJson({ type: "KeepAlive" }), KEEPALIVE_INTERVAL_MS);

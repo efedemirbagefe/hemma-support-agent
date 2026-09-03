@@ -2,9 +2,12 @@
 // Mic -> AudioWorklet (16 kHz Int16) -> WS binary. WS binary -> AudioWorklet ring buffer -> speakers.
 // JSON control messages as in CONTRACTS.md. No dependencies.
 //
-// Two surfaces share one socket: the customer conversation (bubbles, mic, text input) and the
-// "Under the hood" panel (tool calls, session state, latency, event log). Every server message
-// type is handled exactly as before; only where each piece of information is drawn has moved.
+// Three surfaces share one socket: the first screen (one button, "Start a call"), the conversation
+// (bubbles, mic with a live ring, a status word, phrase chips, text input) and the "Under the hood"
+// panel (tool calls, session state, latency, event log). Every server message type is handled as
+// before. The call flow on top of it (greet, language) is optional protocol: an older server that
+// answers "Unknown message type" for `greet` or `lang` is noted in the event log and the page keeps
+// working without it.
 (() => {
   "use strict";
 
@@ -13,9 +16,20 @@
     connStatus: $("connStatus"),
     chaosStatus: $("chaosStatus"),
     hoodDot: $("hoodDot"),
-    speakStatus: $("speakStatus"),
     audioInfo: $("audioInfo"),
     voiceInfo: $("voiceInfo"),
+    btnStart: $("btnStart"),
+    btnTypeInstead: $("btnTypeInstead"),
+    cta: $("cta"),
+    call: $("call"),
+    howto: $("howto"),
+    composer: $("composer"),
+    phrases: $("phrases"),
+    status: $("status"),
+    statusWord: $("statusWord"),
+    bars: $("bars"),
+    liveHint: $("liveHint"),
+    langButtons: [$("langEn"), $("langTr")].filter(Boolean),
     btnMic: $("btnMic"),
     micHint: $("micHint"),
     micLevel: $("micLevel"),
@@ -40,7 +54,263 @@
     toast: $("toast"),
   };
 
+  // ------------------------------------------------------------------ strings
+  // Every visible UI string in both languages. Event log lines, tool names and the raw snapshot
+  // stay English: they are the engineering trail, not the customer surface.
+  const STRINGS = {
+    en: {
+      title: "Hemma support",
+      "lang.label": "Language",
+      "call.label": "Conversation",
+      "hero.title": "Customer support you can talk to.",
+      "hero.lead": "Ask about an existing order: delivery dates, damaged items, late parcels. Speak or type, the assistant checks your order and applies what you confirm.",
+      "cta.start": "Start a call",
+      "cta.noMic": "No microphone?",
+      "cta.type": "Type instead",
+      "how.title": "How it works",
+      "how.1": "Say who you are",
+      "how.1s": "Your name and customer number, or the phone number on the order.",
+      "how.2": "Ask about an order",
+      "how.2s": "A delivery date, a damaged item, a late parcel.",
+      "how.3": "Confirm before anything changes",
+      "how.3s": "Nothing is applied until you say yes.",
+      "phrases.label": "Try saying",
+      "status.connecting": "Connecting",
+      "status.listening": "Listening",
+      "status.thinking": "Thinking",
+      "status.speaking": "Speaking",
+      "status.replying": "Replying",
+      "status.yourTurn": "Your turn",
+      "hint.interrupt": "You can interrupt any time, just start talking.",
+      "hint.text": "Type a message or tap a phrase.",
+      "mic.tap": "Tap to talk",
+      "mic.listening": "Listening. Tap to mute.",
+      "mic.starting": "Starting the microphone",
+      "mic.offline": "The assistant is offline",
+      "mic.voiceOff": "Voice input is off on this deployment",
+      "mic.ariaStart": "Start voice input",
+      "mic.ariaStop": "Stop voice input",
+      "composer.placeholder": "Type a message",
+      "composer.ariaMessage": "Message",
+      "composer.send": "Send",
+      "composer.reset": "Start over",
+      "hood.toggle": "Under the hood",
+      "conn.connecting": "connecting",
+      "conn.connected": "connected",
+      "conn.voiceReady": "voice ready",
+      "conn.textOnly": "text only",
+      "conn.reconnecting": "reconnecting",
+      "conn.voiceReadyTitle": "Speech in, speech out",
+      "conn.voiceReadyTextTitle": "Speech in, replies as text",
+      "conn.textOnlyTitle": "Voice input is off on this deployment",
+      "conn.retryIn": "retry in {s}s",
+      "banner.model": "The assistant is offline on this deployment: the model key is not configured.",
+      "note.tts": "Replies are text only on this deployment",
+      "note.micFallback": "The microphone is not available, so this is a text conversation. Type below or tap a phrase.",
+      "note.voiceOffFallback": "Voice is off on this deployment, so this is a text conversation. Type below or tap a phrase.",
+      "note.noGreet": "The assistant is ready. Say hello, or tap a phrase.",
+      "note.lost": "Connection lost. Reconnecting.",
+      "note.restored": "Connection restored. The assistant starts a new session from here.",
+      "note.soundOff": "Sound is off until you press the mic or send a message once.",
+      "note.notConnected": "Not connected to the server.",
+      "mic.err.hint": "Use the text input instead.",
+      "mic.err.denied": "Microphone permission was denied.",
+      "mic.err.notFound": "No microphone found.",
+      "mic.err.busy": "Microphone is in use by another app or could not be opened.",
+      "mic.err.constraints": "Microphone does not support the requested audio settings.",
+      "mic.err.security": "Microphone blocked by browser settings.",
+      "mic.err.aborted": "Microphone access was interrupted.",
+      "mic.err.https": "Microphone needs HTTPS or localhost.",
+      "mic.err.noGum": "Microphone access is not available in this browser.",
+      "tag.interrupted": "interrupted",
+      "chip.blocked": "blocked",
+      "chip.failed": "failed",
+      "tool.find_customer": "Finding your account",
+      "tool.get_order": "Checking your order",
+      "tool.get_delivery_slots": "Looking up delivery slots",
+      "tool.check_resolution_options": "Checking what we can do",
+      "tool.apply_resolution": "Applying the change",
+      "tool.escalate_case": "Opening a case",
+      "demo.title": "Demo customer",
+      "demo.customerNo": "Customer number",
+      "demo.phone": "Phone",
+      "demo.order1": "Linen sofa cover, EUR 89, arriving Tuesday 8 September",
+      "demo.order2": "Arc floor lamp, EUR 240, delivered 28 August",
+      "demo.alt": "Second customer: Jonas Berg, <code>HM-2305</code>, order <code>HM-1010</code> is four days late.",
+      "hood.title": "Under the hood",
+      "hood.tools": "Tool calls",
+      "hood.state": "Session state",
+      "hood.latency": "Latency per turn (ms)",
+      "hood.log": "Event log",
+      "hood.raw": "Raw snapshot",
+      "hood.toolsEmpty": "No tool calls yet.",
+      "hood.latencyEmpty": "No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).",
+      "hood.chaos": "Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge above lists what is active.",
+      "th.turn": "Turn",
+      "th.tool": "Tool",
+      "th.phase": "Phase",
+      "th.ms": "ms",
+      "th.args": "Args",
+      "th.note": "Note",
+      "th.sttFinal": "STT final",
+      "th.firstToken": "First token",
+      "th.firstAudio": "First audio",
+      "th.played": "Played",
+      "th.toolMs": "Tool ms",
+      "th.total": "Total",
+      "th.tts": "TTS",
+      "state.customer": "Customer",
+      "state.none": "none",
+      "state.activeOrder": "Active order",
+      "state.pending": "Pending",
+      "state.applied": "Applied",
+      "state.cases": "Cases",
+      receipt: "Receipt",
+      "receipt.n": "Receipt {i} of {n}",
+      "foot.note": "Hemma is a fictional store built for a case study. Nothing here is a real order.",
+      "foot.brief": "How this was built",
+    },
+    tr: {
+      title: "Hemma destek",
+      "lang.label": "Dil",
+      "call.label": "Görüşme",
+      "hero.title": "Konuşarak destek alın.",
+      "hero.lead": "Mevcut bir siparişiniz hakkında sorun: teslimat tarihi, hasarlı ürün, geciken paket. Asistan siparişinizi kontrol eder, onayınızı alır ve uygular.",
+      "cta.start": "Görüşmeyi başlat",
+      "cta.noMic": "Mikrofon yok mu?",
+      "cta.type": "Yazarak devam edin",
+      "how.title": "Nasıl çalışır",
+      "how.1": "Kim olduğunuzu söyleyin",
+      "how.1s": "Adınız ve müşteri numaranız, ya da siparişteki telefon numarası.",
+      "how.2": "Bir sipariş hakkında sorun",
+      "how.2s": "Teslimat tarihi, hasarlı ürün, geciken paket.",
+      "how.3": "Değişiklikten önce onaylayın",
+      "how.3s": "Siz evet demeden hiçbir şey uygulanmaz.",
+      "phrases.label": "Şunları deneyebilirsiniz",
+      "status.connecting": "Bağlanıyor",
+      "status.listening": "Dinliyor",
+      "status.thinking": "Düşünüyor",
+      "status.speaking": "Konuşuyor",
+      "status.replying": "Yanıtlıyor",
+      "status.yourTurn": "Sıra sizde",
+      "hint.interrupt": "İstediğiniz an sözünü kesebilirsiniz, konuşmaya başlamanız yeterli.",
+      "hint.text": "Bir mesaj yazın ya da bir cümleye dokunun.",
+      "mic.tap": "Konuşmak için dokunun",
+      "mic.listening": "Dinliyor. Susturmak için dokunun.",
+      "mic.starting": "Mikrofon açılıyor",
+      "mic.offline": "Asistan çevrimdışı",
+      "mic.voiceOff": "Bu kurulumda sesli giriş kapalı",
+      "mic.ariaStart": "Sesli girişi başlat",
+      "mic.ariaStop": "Sesli girişi durdur",
+      "composer.placeholder": "Mesajınızı yazın",
+      "composer.ariaMessage": "Mesaj",
+      "composer.send": "Gönder",
+      "composer.reset": "Baştan başla",
+      "hood.toggle": "Perde arkası",
+      "conn.connecting": "bağlanıyor",
+      "conn.connected": "bağlandı",
+      "conn.voiceReady": "ses hazır",
+      "conn.textOnly": "yalnızca yazı",
+      "conn.reconnecting": "yeniden bağlanıyor",
+      "conn.voiceReadyTitle": "Sesli giriş, sesli yanıt",
+      "conn.voiceReadyTextTitle": "Sesli giriş, yazılı yanıt",
+      "conn.textOnlyTitle": "Bu kurulumda sesli giriş kapalı",
+      "conn.retryIn": "{s} sn sonra yeniden denenecek",
+      "banner.model": "Asistan bu kurulumda çevrimdışı: model anahtarı tanımlı değil.",
+      "note.tts": "Bu kurulumda yanıtlar yalnızca yazılı",
+      "note.micFallback": "Mikrofona erişilemedi, görüşme yazılı devam ediyor. Aşağıya yazabilir ya da bir cümleye dokunabilirsiniz.",
+      "note.voiceOffFallback": "Bu kurulumda ses kapalı, görüşme yazılı devam ediyor. Aşağıya yazabilir ya da bir cümleye dokunabilirsiniz.",
+      "note.noGreet": "Asistan hazır. Merhaba diyebilir ya da bir cümleye dokunabilirsiniz.",
+      "note.lost": "Bağlantı koptu. Yeniden bağlanılıyor.",
+      "note.restored": "Bağlantı yeniden kuruldu. Asistan buradan itibaren yeni bir oturum başlatıyor.",
+      "note.soundOff": "Mikrofona basana ya da bir mesaj gönderene kadar ses kapalı.",
+      "note.notConnected": "Sunucuya bağlı değil.",
+      "mic.err.hint": "Bunun yerine yazabilirsiniz.",
+      "mic.err.denied": "Mikrofon izni verilmedi.",
+      "mic.err.notFound": "Mikrofon bulunamadı.",
+      "mic.err.busy": "Mikrofon başka bir uygulama tarafından kullanılıyor ya da açılamadı.",
+      "mic.err.constraints": "Mikrofon istenen ses ayarlarını desteklemiyor.",
+      "mic.err.security": "Mikrofon tarayıcı ayarları tarafından engellendi.",
+      "mic.err.aborted": "Mikrofon erişimi kesildi.",
+      "mic.err.https": "Mikrofon için HTTPS ya da localhost gerekiyor.",
+      "mic.err.noGum": "Bu tarayıcıda mikrofon erişimi yok.",
+      "tag.interrupted": "kesildi",
+      "chip.blocked": "engellendi",
+      "chip.failed": "başarısız",
+      "tool.find_customer": "Hesabınız bulunuyor",
+      "tool.get_order": "Siparişiniz kontrol ediliyor",
+      "tool.get_delivery_slots": "Teslimat saatleri aranıyor",
+      "tool.check_resolution_options": "Seçenekler kontrol ediliyor",
+      "tool.apply_resolution": "Değişiklik uygulanıyor",
+      "tool.escalate_case": "Kayıt açılıyor",
+      "demo.title": "Demo müşteri",
+      "demo.customerNo": "Müşteri numarası",
+      "demo.phone": "Telefon",
+      "demo.order1": "Keten kanepe kılıfı, 89 EUR, 8 Eylül Salı günü teslim edilecek",
+      "demo.order2": "Yay lambader, 240 EUR, 28 Ağustos'ta teslim edildi",
+      "demo.alt": "İkinci müşteri: Jonas Berg, <code>HM-2305</code>; <code>HM-1010</code> numaralı sipariş dört gündür gecikmiş durumda.",
+      "hood.title": "Perde arkası",
+      "hood.tools": "Araç çağrıları",
+      "hood.state": "Oturum durumu",
+      "hood.latency": "Tur başına gecikme (ms)",
+      "hood.log": "Olay günlüğü",
+      "hood.raw": "Ham görüntü",
+      "hood.toolsEmpty": "Henüz araç çağrısı yok.",
+      "hood.latencyEmpty": "Henüz tur yok. ~ ile işaretli değerler tarayıcıda, sizin turunuzun bitiminden itibaren ölçülür; diğerleri sunucudan gelir. p50 / p95 satırı oturumdaki turların ilk token, ilk ses, çalınma ve toplam değerlerini özetler (en yakın sıra; sözü kesilen turlar toplama dahil edilmez).",
+      "hood.chaos": "Kaos: bu sayfanın adresine <code>?fail=tts</code> ekleyip yenileyin (birden fazlası için virgülle ayırın, örneğin <code>?fail=tts,stt</code>); sunucu o parçayı bilerek bozar ve yukarıdaki kırmızı rozet aktif olanları listeler.",
+      "th.turn": "Tur",
+      "th.tool": "Araç",
+      "th.phase": "Aşama",
+      "th.ms": "ms",
+      "th.args": "Argümanlar",
+      "th.note": "Not",
+      "th.sttFinal": "STT final",
+      "th.firstToken": "İlk token",
+      "th.firstAudio": "İlk ses",
+      "th.played": "Çalındı",
+      "th.toolMs": "Araç ms",
+      "th.total": "Toplam",
+      "th.tts": "TTS",
+      "state.customer": "Müşteri",
+      "state.none": "yok",
+      "state.activeOrder": "Aktif sipariş",
+      "state.pending": "Bekleyen",
+      "state.applied": "Uygulanan",
+      "state.cases": "Kayıtlar",
+      receipt: "Makbuz",
+      "receipt.n": "Makbuz {i} / {n}",
+      "foot.note": "Hemma, bir vaka çalışması için kurgulanmış bir mağazadır. Buradaki hiçbir sipariş gerçek değildir.",
+      "foot.brief": "Nasıl yapıldı",
+    },
+  };
+
+  // The demo phrases, in the order of the run sheet (DEMO.md). The first one identifies the demo
+  // customer; the rest assume it. Tapping one sends it as a text turn, in voice mode too.
+  const PHRASES = {
+    en: [
+      "Hi, this is Anna Weber, customer number HM-2201.",
+      "What's happening with my most recent order?",
+      "A lamp from an earlier order arrived damaged",
+      "Move the sofa cover delivery to Friday",
+      "The morning slot, please",
+      "Yes, go ahead",
+      "Did that go through? Book it again",
+    ],
+    tr: [
+      "Merhaba, ben Anna Weber, müşteri numaram HM-2201.",
+      "En son siparişim ne durumda?",
+      "Önceki siparişimdeki lamba hasarlı geldi",
+      "Kanepe kılıfı teslimatını Cuma'ya alalım",
+      "Sabah saati olsun lütfen",
+      "Evet, onaylıyorum",
+      "İşlem yapıldı mı? Bir daha kaydeder misiniz",
+    ],
+  };
+
+  const freshCall = () => ({ active: false, mode: null, greetWanted: false, micCapturing: false, micFrameTimer: null, fellBack: false });
+
   const state = {
+    lang: "en",
     ws: null,
     wsOpen: false,
     ready: false, // the `ready` message of the current socket has arrived
@@ -62,6 +332,7 @@
     modelError: false,
     micOn: false,
     micStarting: false,
+    micLastError: null,
     currentTurnId: null,
     turnNumbers: new Map(), // turnId -> 1, 2, 3 ...
     turns: new Map(), // turnId -> { t0, firstTextAt, firstAudioAt, playedAt, playedSent, server, clientToolMs }
@@ -69,18 +340,50 @@
     agentEntries: new Map(), // turnId -> conversation element
     interimEl: null,
     toolRows: [], // { turnId, name, phase, ms, args, note, at }
+    lastSession: {},
     speakingTimer: null,
     toastTimer: null,
+    // The call: the first screen's one action. `greetWanted` is set by Start a call / Type instead
+    // and not by a typed or tapped first message, where the customer has already spoken first.
+    call: freshCall(),
+    greeted: false, // `greet` sent on this socket (re-armed on a new socket and by Start over)
+    greetSupported: null, // false after an older server answered "Unknown message type: greet"
+    langSupported: null, // true once `ready` echoes `lang`, false after "Unknown message type: lang"
+    usedPhrases: new Set(),
+    // Status word inputs: a turn is open from the customer's line (or the greet) to the server's
+    // `latency` for it; `openTurnId` is set once that turn produces output.
+    turnOpen: false,
+    openTurnId: null,
+    turnWatchdog: null,
+    hearing: false, // an stt interim is on screen
+    playing: false, // the playback worklet is rendering audio
+    textStreaming: false, // agent_text deltas are arriving (drives "Replying" when TTS is off)
+    textStreamTimer: null,
+    runningTool: "",
+    interruptExplained: false,
+    phase: "idle",
   };
 
   const HOOD_KEY = "hemma.hood";
+  const LANG_KEY = "hemma.lang";
   const EVENT_LOG_MAX = 200;
+  const MIC_FRAME_TIMEOUT_MS = 1500; // greet anyway if the capture worklet posts no frame in time
+  const TURN_WATCHDOG_MS = 30000; // "Thinking" cannot outlive the server's turn by more than this
+  const TEXT_STREAM_IDLE_MS = 1200;
 
   // ------------------------------------------------------------------ helpers
   const now = () => performance.now();
   // Audio queued before the first user gesture is only replayed if its turn started within this
   // window, so a `played` report is never sent for a turn that finished long ago.
   const PENDING_AUDIO_MAX_AGE_MS = 3000;
+
+  function t(key, vars) {
+    const table = STRINGS[state.lang] || STRINGS.en;
+    let s = Object.prototype.hasOwnProperty.call(table, key) ? table[key] : STRINGS.en[key];
+    if (s == null) return key;
+    if (vars) for (const k of Object.keys(vars)) s = s.split("{" + k + "}").join(String(vars[k]));
+    return s;
+  }
 
   function toast(message) {
     els.toast.textContent = message;
@@ -147,11 +450,18 @@
 
   // Only agent_text and tool start may retarget currentTurnId: binary audio frames are tagged
   // with it, so a late event for a finished turn (latency re-send, tool end after a barge-in)
-  // must not relabel the next turn's audio.
+  // must not relabel the next turn's audio. A turn seen for the first time is also an open turn
+  // for the status word, whether or not the client saw the customer's line that started it.
   function onTurnSeen(turnId) {
     if (turnId == null) return null;
+    const isNew = !state.turns.has(turnId);
     const t = turnRecord(turnId);
     state.currentTurnId = turnId;
+    if (isNew || state.turnOpen) {
+      state.turnOpen = true;
+      state.openTurnId = turnId;
+      armTurnWatchdog();
+    }
     return t;
   }
 
@@ -407,21 +717,22 @@
 
   function renderState(session) {
     const s = session && typeof session === "object" ? session : {};
+    state.lastSession = s;
     const chips = [];
     if (s.customer && typeof s.customer === "object") {
-      chips.push("Customer: " + (s.customer.name || s.customer.id || "?") + (s.customer.tier ? " (" + s.customer.tier + ")" : ""));
+      chips.push(t("state.customer") + ": " + (s.customer.name || s.customer.id || "?") + (s.customer.tier ? " (" + s.customer.tier + ")" : ""));
     } else {
-      chips.push("Customer: none");
+      chips.push(t("state.customer") + ": " + t("state.none"));
     }
-    if (s.activeOrderId) chips.push("Active order: " + s.activeOrderId);
+    if (s.activeOrderId) chips.push(t("state.activeOrder") + ": " + s.activeOrderId);
     if (s.pending && typeof s.pending === "object") {
-      chips.push("Pending: " + (s.pending.summary || [s.pending.type, s.pending.orderId].filter(Boolean).join(" ")));
+      chips.push(t("state.pending") + ": " + (s.pending.summary || [s.pending.type, s.pending.orderId].filter(Boolean).join(" ")));
     } else {
-      chips.push("Pending: none");
+      chips.push(t("state.pending") + ": " + t("state.none"));
     }
     const appliedList = Array.isArray(s.applied) ? s.applied : s.applied && typeof s.applied === "object" ? Object.values(s.applied) : [];
-    chips.push("Applied: " + appliedList.length);
-    chips.push("Cases: " + (Array.isArray(s.cases) ? s.cases.length : 0));
+    chips.push(t("state.applied") + ": " + appliedList.length);
+    chips.push(t("state.cases") + ": " + (Array.isArray(s.cases) ? s.cases.length : 0));
     els.stateSummary.replaceChildren(...chips.map((c) => { const span = document.createElement("span"); span.textContent = c; return span; }));
     renderReceipts(appliedList);
     let text;
@@ -446,7 +757,7 @@
       div.className = "receipt";
       const label = document.createElement("div");
       label.className = "label";
-      label.textContent = entries.length > 1 ? "Receipt " + (entries.length - i) + " of " + entries.length : "Receipt";
+      label.textContent = entries.length > 1 ? t("receipt.n", { i: entries.length - i, n: entries.length }) : t("receipt");
       const id = document.createElement("div");
       id.className = "id";
       id.textContent = typeof rec.receipt === "string" && rec.receipt ? rec.receipt : rec.key ? String(rec.key) : "?";
@@ -494,34 +805,39 @@
   // Header pill: connecting / connected / voice ready / text only / reconnecting.
   function renderConn() {
     const el = els.connStatus;
-    let text = "connecting";
+    let text = t("conn.connecting");
     let cls = "";
     let title = "";
     if (state.wsOpen) {
       if (!state.ready) {
-        text = "connected";
+        text = t("conn.connected");
         cls = "ok";
       } else if (state.voice.stt) {
-        text = "voice ready";
+        text = t("conn.voiceReady");
         cls = "ok";
-        title = state.voice.tts ? "Speech in, speech out" : "Speech in, replies as text";
+        title = state.voice.tts ? t("conn.voiceReadyTitle") : t("conn.voiceReadyTextTitle");
       } else {
-        text = "text only";
-        title = "Voice input is off on this deployment";
+        text = t("conn.textOnly");
+        title = t("conn.textOnlyTitle");
       }
     } else if (state.everConnected) {
-      text = "reconnecting";
+      text = t("conn.reconnecting");
       cls = "bad";
-      title = state.retryIn ? "retry in " + state.retryIn + "s" : "";
+      title = state.retryIn ? t("conn.retryIn", { s: state.retryIn }) : "";
     }
     el.textContent = text;
     el.className = "pill" + (cls ? " " + cls : "");
-    el.title = title;
+    el.title = title || text;
   }
 
-  // Send is enabled whenever the socket is open and the model is not known to be off.
+  // Send and the phrase chips are enabled whenever the socket is open and the model is not known
+  // to be off. Start a call only needs the model: the socket may still be connecting behind it.
   function renderControls() {
-    els.btnSend.disabled = !(state.wsOpen && !state.modelOffline);
+    const canSend = state.wsOpen && !state.modelOffline;
+    els.btnSend.disabled = !canSend;
+    for (const b of els.phrases.children) b.disabled = !canSend;
+    if (els.btnStart) els.btnStart.disabled = state.modelOffline;
+    if (els.btnTypeInstead) els.btnTypeInstead.disabled = state.modelOffline;
     renderMic();
   }
 
@@ -530,23 +846,23 @@
   function renderMic() {
     const b = els.btnMic;
     let disabled = false;
-    let hint = "Tap to talk";
+    let hint = t("mic.tap");
     if (state.modelOffline) {
       disabled = true;
-      hint = "The assistant is offline";
+      hint = t("mic.offline");
     } else if (!state.voice.stt) {
       disabled = true;
-      hint = "Voice input is off on this deployment";
+      hint = t("mic.voiceOff");
     } else if (state.micStarting) {
       disabled = true;
-      hint = "Starting the microphone";
+      hint = t("mic.starting");
     } else if (state.micOn) {
-      hint = "Listening. Tap to stop.";
+      hint = t("mic.listening");
     }
     b.disabled = disabled;
     b.classList.toggle("listening", state.micOn);
     b.setAttribute("aria-pressed", state.micOn ? "true" : "false");
-    b.setAttribute("aria-label", state.micOn ? "Stop voice input" : "Start voice input");
+    b.setAttribute("aria-label", state.micOn ? t("mic.ariaStop") : t("mic.ariaStart"));
     b.title = disabled ? hint : "";
     // A disabled button does not show a tooltip in every browser; the wrapper carries it too.
     if (b.parentElement) b.parentElement.title = disabled ? hint : "";
@@ -616,10 +932,282 @@
     }
   }
 
+  // --------------------------------------------------------------- language
+  // URL ?lang= wins (a shareable Turkish link), then the saved choice, then the browser language.
+  function initialLang() {
+    try {
+      const q = new URLSearchParams(location.search).get("lang");
+      if (q === "tr" || q === "en") return q;
+    } catch {}
+    try {
+      const saved = localStorage.getItem(LANG_KEY);
+      if (saved === "tr" || saved === "en") return saved;
+    } catch {}
+    try {
+      const nav = String((typeof navigator !== "undefined" && navigator.language) || "").toLowerCase();
+      if (nav.startsWith("tr")) return "tr";
+    } catch {}
+    return "en";
+  }
+
+  // Static markup carries data-i18n keys; everything rendered from JS reads t() at render time.
+  function applyStrings() {
+    const all = (sel) => { try { return Array.from(document.querySelectorAll(sel)); } catch { return []; } };
+    for (const el of all("[data-i18n]")) el.textContent = t(el.getAttribute("data-i18n"));
+    for (const el of all("[data-i18n-html]")) el.innerHTML = t(el.getAttribute("data-i18n-html"));
+    for (const el of all("[data-i18n-placeholder]")) el.setAttribute("placeholder", t(el.getAttribute("data-i18n-placeholder")));
+    for (const el of all("[data-i18n-aria]")) el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria")));
+    try { document.title = t("title"); } catch {}
+    try { if (document.documentElement) document.documentElement.lang = state.lang; } catch {}
+  }
+
+  // Switches every UI string, the chips and (when the socket is open) the assistant's language.
+  // The WS URL carries `lang` on connect; mid-session the `lang` message does it.
+  function setLang(lang, opts) {
+    const next = lang === "tr" ? "tr" : "en";
+    const o = opts || {};
+    const changed = next !== state.lang;
+    state.lang = next;
+    if (o.persist) {
+      try { localStorage.setItem(LANG_KEY, next); } catch {}
+    }
+    applyStrings();
+    for (const b of els.langButtons) b.setAttribute("aria-pressed", b.getAttribute("data-lang") === next ? "true" : "false");
+    renderPhrases();
+    renderConn();
+    renderControls();
+    renderStatus();
+    renderState(state.lastSession);
+    for (const row of state.toolRows) setChip(row);
+    for (const tag of els.transcript.querySelectorAll(".tag")) tag.textContent = t("tag.interrupted");
+    if (changed && o.send !== false && state.wsOpen && state.langSupported !== false) {
+      if (sendJson({ type: "lang", lang: next })) logLine("Language switched to " + next + " (lang message sent).");
+    } else if (changed) {
+      logLine("Language switched to " + next + ".");
+    }
+  }
+
+  // ----------------------------------------------------------------- phrases
+  function renderPhrases() {
+    const list = PHRASES[state.lang] || PHRASES.en;
+    const canSend = state.wsOpen && !state.modelOffline;
+    const frag = document.createDocumentFragment();
+    list.forEach((text, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "phrase" + (state.usedPhrases.has(i) ? " used" : "");
+      b.textContent = text;
+      b.disabled = !canSend;
+      b.addEventListener("click", () => {
+        state.usedPhrases.add(i);
+        b.classList.add("used");
+        sendUserText(text);
+      });
+      frag.appendChild(b);
+    });
+    els.phrases.replaceChildren(frag);
+  }
+
+  // ---------------------------------------------------------------- the call
+  function renderCall() {
+    const active = state.call.active;
+    if (els.cta) els.cta.hidden = active;
+    if (els.howto) els.howto.hidden = active;
+    els.transcript.hidden = !active;
+    if (els.composer) els.composer.hidden = !active;
+    if (els.call) els.call.classList.toggle("active", active);
+  }
+
+  function focusInput() {
+    if (state.call.mode !== "text") return;
+    try { if (typeof els.textInput.focus === "function") els.textInput.focus({ preventScroll: true }); } catch {}
+  }
+
+  // On a phone the hero fills the first screen; once the call starts the conversation is what
+  // matters, so it is scrolled under the header.
+  function bringCallIntoView() {
+    try {
+      if (!window.innerWidth || window.innerWidth > 860) return;
+      if (!els.call || typeof els.call.scrollIntoView !== "function") return;
+      let reduce = false;
+      try { reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch {}
+      els.call.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    } catch {}
+  }
+
+  function activateCall(mode, wantGreet) {
+    state.call = { active: true, mode, greetWanted: !!wantGreet, micCapturing: false, micFrameTimer: null, fellBack: false };
+    state.turnOpen = false;
+    state.openTurnId = null;
+    state.hearing = false;
+    renderCall();
+    renderControls();
+    renderStatus();
+    logLine("Call started (" + mode + ", " + state.lang + ").");
+    bringCallIntoView();
+  }
+
+  // Start a call: ask for the mic, then greet once the mic is capturing. Type instead: text mode,
+  // greet right away. Both wait for `ready` if the socket is still connecting.
+  async function startCall(mode) {
+    if (state.call.active) return;
+    activateCall(mode, true);
+    try { await ensureAudio(); } catch (err) { logLine("Audio unavailable: " + ((err && err.message) || err)); }
+    if (mode === "voice") {
+      if (state.ready && !state.voice.stt) {
+        fallbackToText("voiceOff");
+      } else {
+        const ok = await startMic();
+        if (!ok) fallbackToText("mic", state.micLastError);
+        else if (!state.voice.stt) { stopMic(); fallbackToText("voiceOff"); } // `ready` with stt off landed meanwhile
+      }
+    } else {
+      focusInput();
+    }
+    maybeGreet();
+  }
+
+  // The one line of explanation when the mic is refused or voice is off on the server; the call
+  // goes on as text.
+  function fallbackToText(reason, err) {
+    if (!state.call.active || state.call.fellBack) return;
+    state.call.fellBack = true;
+    state.call.mode = "text";
+    state.call.micCapturing = false;
+    if (err) logLine("Mic unavailable: " + (((err && err.name) || "") + " " + ((err && err.message) || "")).trim());
+    else logLine("Voice input is off on the server, the call continues as text.");
+    noteLine(t(reason === "mic" ? "note.micFallback" : "note.voiceOffFallback"));
+    focusInput();
+    renderStatus();
+    maybeGreet();
+  }
+
+  // `greet` once per socket (re-armed by Start over, which starts a new server session): after
+  // `ready`, and in voice mode only once the capture worklet has posted its first frame.
+  function maybeGreet() {
+    const c = state.call;
+    if (!c.active || !c.greetWanted || state.greeted) return;
+    if (!state.wsOpen || !state.ready || state.greetSupported === false) return;
+    if (c.mode === "voice" && !c.micCapturing) return;
+    state.greeted = true;
+    if (!sendJson({ type: "greet" })) { state.greeted = false; return; }
+    // The greet turn is measured from here: the browser's first token / first audio / played
+    // estimates are relative to the request, like a customer turn is to the end of their line.
+    state.lastUserTurnEndAt = now();
+    state.turnOpen = true;
+    state.openTurnId = null;
+    armTurnWatchdog();
+    logLine("Greet requested (" + c.mode + ", " + state.lang + ").");
+    renderStatus();
+  }
+
+  function onMicCapturing(how) {
+    if (state.call.micCapturing) return;
+    state.call.micCapturing = true;
+    clearTimeout(state.call.micFrameTimer);
+    state.call.micFrameTimer = null;
+    logLine(how === "timeout" ? "No mic frame after " + MIC_FRAME_TIMEOUT_MS + " ms, greeting anyway." : "Mic is capturing (first frame sent).");
+    maybeGreet();
+  }
+
+  // A customer line went to the server (typed, tapped or spoken). Marks the turn open for the
+  // status word; the first one also retires the interrupt hint.
+  function userTurnSent() {
+    state.lastUserTurnEndAt = now();
+    state.turnOpen = true;
+    state.openTurnId = null;
+    state.hearing = false;
+    // The interrupt hint is only ever on screen in voice mode with the mic on; the first customer
+    // line while it is showing retires it for the rest of the page's life.
+    if (state.call.mode === "voice" && state.micOn) state.interruptExplained = true;
+    armTurnWatchdog();
+    renderStatus();
+  }
+
+  function closeTurn() {
+    state.turnOpen = false;
+    state.openTurnId = null;
+    state.runningTool = "";
+    clearTimeout(state.turnWatchdog);
+    state.turnWatchdog = null;
+    renderStatus();
+  }
+
+  function armTurnWatchdog() {
+    clearTimeout(state.turnWatchdog);
+    state.turnWatchdog = setTimeout(() => {
+      if (!state.turnOpen) return;
+      logLine("No turn end from the server in " + TURN_WATCHDOG_MS / 1000 + " s, status reset.");
+      closeTurn();
+    }, TURN_WATCHDOG_MS);
+  }
+
+  // Sends a customer line as text. Before the call this starts one in text mode without a greet:
+  // the customer has spoken first.
+  async function sendUserText(text) {
+    if (!text) return false;
+    if (!state.call.active) activateCall("text", false);
+    try { await ensureAudio(); } catch (err) { console.warn("audio unavailable, text only:", err); }
+    if (!sendJson({ type: "text", text })) return false;
+    setInterim("");
+    finalUserLine(text);
+    userTurnSent();
+    return true;
+  }
+
+  // ----------------------------------------------------------- status word
+  // Listening / Thinking / Speaking, from what the page can see: stt interims, the open turn,
+  // tool activity, the playback worklet.
+  function computePhase() {
+    const c = state.call;
+    if (!c.active) return "idle";
+    if (!state.wsOpen || !state.ready) return "connecting";
+    if (state.hearing) return "listening";
+    if (state.playing) return "speaking";
+    if (!state.voice.tts && state.textStreaming) return "speaking";
+    if (state.turnOpen) return "thinking";
+    if (state.micOn) return "listening";
+    return "yourTurn";
+  }
+
+  function phaseWord(phase) {
+    switch (phase) {
+      case "connecting": return t("status.connecting");
+      case "listening": return t("status.listening");
+      case "thinking": return t("status.thinking");
+      case "speaking": return state.voice.tts ? t("status.speaking") : t("status.replying");
+      case "yourTurn": return t("status.yourTurn");
+      default: return "";
+    }
+  }
+
+  function hintText(phase) {
+    if (phase === "thinking" && state.runningTool) return toolLabel(state.runningTool);
+    if (state.call.mode === "voice" && state.micOn && !state.interruptExplained) return t("hint.interrupt");
+    if (state.call.mode === "text" && phase === "yourTurn") return t("hint.text");
+    return "";
+  }
+
+  function renderStatus() {
+    if (!els.status) return;
+    const phase = computePhase();
+    state.phase = phase;
+    els.status.className = "status " + phase;
+    els.statusWord.textContent = phaseWord(phase);
+    els.bars.hidden = phase !== "speaking";
+    els.liveHint.textContent = hintText(phase);
+  }
+
+  function noteTextStreaming() {
+    state.textStreaming = true;
+    clearTimeout(state.textStreamTimer);
+    state.textStreamTimer = setTimeout(() => { state.textStreaming = false; renderStatus(); }, TEXT_STREAM_IDLE_MS);
+  }
+
   // --------------------------------------------------------------- websocket
   function sendJson(obj) {
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      toast("Not connected to the server.");
+      toast(t("note.notConnected"));
       return false;
     }
     state.ws.send(JSON.stringify(obj));
@@ -637,13 +1225,20 @@
     state.countdownTimer = null;
   }
 
+  function wsUrl() {
+    const params = new URLSearchParams();
+    params.set("lang", state.lang);
+    const fail = failQuery();
+    if (fail) params.set("fail", fail);
+    return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?" + params.toString();
+  }
+
   function connect() {
     clearTimers();
     state.ready = false;
     state.retryIn = 0;
     renderConn();
-    const fail = failQuery();
-    const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws" + (fail ? "?fail=" + encodeURIComponent(fail) : "");
+    const url = wsUrl();
     let ws;
     try { ws = new WebSocket(url); } catch (e) { scheduleReconnect(); return; }
     ws.binaryType = "arraybuffer";
@@ -652,16 +1247,21 @@
       state.wsOpen = true;
       state.reconnectDelay = 1000;
       state.lostNoted = false;
+      state.greeted = false; // a new socket is a new server session
+      state.turnOpen = false;
+      state.openTurnId = null;
+      state.runningTool = "";
       renderConn();
       renderControls();
       if (state.everConnected) {
         resetPanels();
         logLine("Reconnected. The server started a new session, panels were cleared.");
-        noteLine("Connection restored. The assistant starts a new session from here.");
+        noteLine(t("note.restored"));
       } else {
         logLine("Connected to " + url);
       }
       state.everConnected = true;
+      renderStatus();
       checkModel();
     };
     ws.onmessage = (ev) => {
@@ -677,11 +1277,13 @@
       state.ws = null;
       clearPlayback();
       setInterim("");
+      state.hearing = false;
       renderControls();
       if (state.everConnected && !state.lostNoted) {
         state.lostNoted = true;
-        noteLine("Connection lost. Reconnecting.");
+        noteLine(t("note.lost"));
       }
+      renderStatus();
       scheduleReconnect();
     };
     ws.onerror = () => { /* onclose follows and schedules the retry */ };
@@ -718,17 +1320,34 @@
         applyChaos(chaosList(msg.chaos));
         const features = msg.features && typeof msg.features === "object" ? msg.features : null;
         if (features && typeof features.model === "boolean") applyModelFlag(features.model);
+        // A server that speaks the language protocol echoes `lang`. A mismatch is logged, not
+        // corrected: the page keeps the customer's choice.
+        if (typeof msg.lang === "string") {
+          state.langSupported = true;
+          if (msg.lang !== state.lang) logLine("Server language is " + msg.lang + ", the page is " + state.lang + ".");
+          else logLine("Server language: " + msg.lang + ".");
+        }
         renderConn();
+        renderStatus();
+        maybeGreet();
         break;
       }
       case "stt": {
         if (msg.final) {
           const text = (msg.text || "").trim();
-          if (text) finalUserLine(text);
-          else setInterim("");
+          if (text) {
+            finalUserLine(text);
+            userTurnSent();
+          } else {
+            setInterim("");
+            state.hearing = false;
+            renderStatus();
+          }
           state.lastUserTurnEndAt = now();
         } else {
           setInterim(msg.text || "");
+          state.hearing = !!(msg.text || "").trim();
+          renderStatus();
         }
         break;
       }
@@ -740,7 +1359,9 @@
           if (t && !t.firstTextAt) { t.firstTextAt = now(); renderLatency(); }
           appendAgentText(el, delta);
           noteModelWorks();
+          noteTextStreaming();
         }
+        renderStatus();
         break;
       }
       case "tool": {
@@ -748,6 +1369,9 @@
         // barge-in) and must not retarget the audio that follows.
         const t = msg.phase === "start" ? onTurnSeen(msg.turnId) : turnRecordOrNull(msg.turnId);
         onToolMessage(msg, t);
+        if (msg.phase === "start") state.runningTool = msg.name || "";
+        else if (state.runningTool === (msg.name || "")) state.runningTool = "";
+        renderStatus();
         break;
       }
       case "state": {
@@ -761,10 +1385,14 @@
           el.classList.add("interrupted");
           const tag = document.createElement("span");
           tag.className = "tag";
-          tag.textContent = "interrupted";
+          tag.textContent = t("tag.interrupted");
           el.appendChild(tag);
         }
         logLine("Barge-in: audio cleared.");
+        // The turn that was producing output is cancelled. A turn the customer just sent (text
+        // while audio still played) has no output yet and stays open.
+        if (state.openTurnId != null) closeTurn();
+        else renderStatus();
         break;
       }
       case "latency": {
@@ -775,13 +1403,29 @@
           t.server = { ...t.server, ...msg };
           renderLatency();
         }
+        if (state.turnOpen && (state.openTurnId == null || msg.turnId === state.openTurnId)) closeTurn();
         break;
       }
       case "error": {
         const message = msg.message || "unknown";
+        // An older server answers the optional `greet` / `lang` messages with this. Not an
+        // error for the customer: noted in the event log, the page carries on without them.
+        const unknown = /^Unknown message type: (greet|lang)$/.exec(message);
+        if (unknown) {
+          logLine("Server does not support the " + unknown[1] + " message (older server).");
+          if (unknown[1] === "greet") {
+            state.greetSupported = false;
+            closeTurn();
+            noteLine(t("note.noGreet"));
+          } else {
+            state.langSupported = false;
+          }
+          break;
+        }
         errLine(message);
         toast(message);
         noteModelError(message);
+        if (/^(Model error|Agent unavailable)/i.test(message)) closeTurn();
         break;
       }
       default:
@@ -829,18 +1473,11 @@
     renderLatency();
   }
 
-  // What the customer sees for each tool. Unknown names fall back to the name with spaces.
-  const TOOL_LABELS = {
-    find_customer: "Finding your account",
-    get_order: "Checking your order",
-    get_delivery_slots: "Looking up delivery slots",
-    check_resolution_options: "Checking what we can do",
-    apply_resolution: "Applying the change",
-    escalate_case: "Opening a case",
-  };
-
+  // What the customer sees for each tool, in the current language. Unknown names fall back to
+  // the name with spaces.
   function toolLabel(name) {
-    if (Object.prototype.hasOwnProperty.call(TOOL_LABELS, name)) return TOOL_LABELS[name];
+    const key = "tool." + name;
+    if (Object.prototype.hasOwnProperty.call(STRINGS.en, key)) return t(key);
     return String(name || "tool").replace(/_/g, " ");
   }
 
@@ -856,7 +1493,7 @@
     label.className = "label";
     label.textContent = toolLabel(row.name);
     row.chip.appendChild(label);
-    const suffix = kind === "blocked" ? "blocked" : kind === "error" ? "failed" : "";
+    const suffix = kind === "blocked" ? t("chip.blocked") : kind === "error" ? t("chip.failed") : "";
     if (suffix) {
       const s = document.createElement("span");
       s.className = "state";
@@ -876,6 +1513,8 @@
     if (!voice.stt) {
       if (state.micOn) stopMic();
       if (prev.stt) logLine("Server has no speech recognition. Type your messages below.");
+      // A voice call on a server without STT carries on as text, with the one-line explanation.
+      if (state.call.active && state.call.mode === "voice") fallbackToText("voiceOff");
     }
     if (!voice.tts && prev.tts) logLine("Server has no TTS, replies are text only.");
     if (voice.tts && voice.ttsEngine && voice.ttsEngine !== prev.ttsEngine) logLine("TTS engine: " + voice.ttsEngine + ".");
@@ -885,6 +1524,7 @@
     }
     renderControls();
     renderConn();
+    renderStatus();
   }
 
   // Red badge in the "Under the hood" panel while the server runs with chaos toggles on (?fail=tts
@@ -985,7 +1625,7 @@
       if (state.pendingAudio.length > 500) state.pendingAudio.shift();
       if (state.pendingAudio.length === 1) {
         logLine("Audio arrived before playback was enabled. Press the mic or Send once to enable sound.");
-        noteLine("Sound is off until you press the mic or send a message once.");
+        noteLine(t("note.soundOff"));
       }
     }
   }
@@ -993,6 +1633,9 @@
   function clearPlayback() {
     state.pendingAudio = [];
     if (state.audio.playback) state.audio.playback.port.postMessage({ type: "clear" });
+    // The buffered audio is gone now; the worklet's own "drained (cleared)" follows and agrees.
+    clearTimeout(state.speakingTimer);
+    state.playing = false;
   }
 
   function onPlaybackMessage(m) {
@@ -1007,22 +1650,35 @@
       renderLatency();
     } else if (m.type === "playing") {
       clearTimeout(state.speakingTimer);
-      els.speakStatus.hidden = false;
+      state.playing = true;
+      renderStatus();
     } else if (m.type === "drained") {
+      // A short grace so a gap between two sentences does not flicker the status word.
       clearTimeout(state.speakingTimer);
-      state.speakingTimer = setTimeout(() => { els.speakStatus.hidden = true; }, m.reason === "cleared" ? 0 : 250);
+      state.speakingTimer = setTimeout(() => { state.playing = false; renderStatus(); }, m.reason === "cleared" ? 0 : 250);
     } else if (m.type === "overflow") {
       console.warn("playback buffer overflow, dropped samples:", m.dropped);
     }
   }
 
+  function micError(code, message) {
+    const e = new Error(message);
+    e.code = code;
+    return e;
+  }
+
+  // Opens the mic. Returns true when capturing; on failure the error is in state.micLastError and
+  // the caller decides what to show (the call start shows the text fallback line, the mic button
+  // shows the error).
   async function startMic() {
-    if (state.micOn || state.micStarting) return;
+    if (state.micOn) return true;
+    if (state.micStarting) return false;
     state.micStarting = true;
+    state.micLastError = null;
     renderMic();
     try {
-      if (!window.isSecureContext) throw new Error("Microphone needs HTTPS or localhost. Use the text input instead.");
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("getUserMedia is not available here. Use the text input instead.");
+      if (!window.isSecureContext) throw micError("https", "Microphone needs HTTPS or localhost.");
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw micError("nogum", "getUserMedia is not available here.");
       await ensureAudio();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       const a = state.audio;
@@ -1038,6 +1694,7 @@
         const d = e.data;
         if (d instanceof ArrayBuffer) {
           if (state.micOn) sendBinary(d);
+          if (state.micOn && !state.call.micCapturing) onMicCapturing("frame");
         } else if (d && d.type === "level") {
           // The inner ring grows with the mic level; the outer pulse is CSS.
           const level = Math.min(1, d.rms * 4);
@@ -1056,39 +1713,48 @@
       updateAudioInfo();
       state.micOn = true;
       state.micStarting = false;
+      if (state.call.active) state.call.mode = "voice";
       renderMic();
+      renderStatus();
       logLine("Mic on. Speak, or type below.");
+      clearTimeout(state.call.micFrameTimer);
+      state.call.micFrameTimer = setTimeout(() => { if (state.micOn && state.call.active) onMicCapturing("timeout"); }, MIC_FRAME_TIMEOUT_MS);
+      return true;
     } catch (err) {
       state.micStarting = false;
-      const text = micErrorText(err);
-      errLine(text);
-      toast(text);
+      state.micLastError = err;
       renderMic();
+      renderStatus();
+      return false;
     }
   }
 
   function micErrorText(err) {
     const name = (err && err.name) || "";
     const message = (err && err.message) || "";
-    const hint = " Use the text input instead.";
-    switch (name) {
-      case "NotAllowedError": return "Microphone permission was denied." + hint;
-      case "NotFoundError": return "No microphone found." + hint;
-      case "NotReadableError": return "Microphone is in use by another app or could not be opened." + hint;
-      case "OverconstrainedError": return "Microphone does not support the requested audio settings." + hint;
-      case "SecurityError": return "Microphone blocked by browser settings." + hint;
-      case "AbortError": return "Microphone access was interrupted." + hint;
-      default: break;
-    }
+    const code = (err && err.code) || "";
+    const hint = " " + t("mic.err.hint");
+    const known = {
+      NotAllowedError: "mic.err.denied",
+      NotFoundError: "mic.err.notFound",
+      NotReadableError: "mic.err.busy",
+      OverconstrainedError: "mic.err.constraints",
+      SecurityError: "mic.err.security",
+      AbortError: "mic.err.aborted",
+    };
+    if (Object.prototype.hasOwnProperty.call(known, name)) return t(known[name]) + hint;
+    if (code === "https") return t("mic.err.https") + hint;
+    if (code === "nogum") return t("mic.err.noGum") + hint;
     // Plain Errors are our own messages; a DOMException with an empty message still names itself.
     const base = !name || name === "Error" ? message || String(err) : name + (message ? ": " + message : "");
-    if (base.includes(hint.trim())) return base; // already carries the hint
     return base + (/[.!?]$/.test(base) ? "" : ".") + hint;
   }
 
   function stopMic() {
     const a = state.audio;
     state.micOn = false;
+    clearTimeout(state.call.micFrameTimer);
+    state.call.micFrameTimer = null;
     if (a.capture) {
       try { a.capture.port.postMessage({ type: "enable", value: false }); } catch {}
       try { a.capture.disconnect(); } catch {}
@@ -1099,32 +1765,58 @@
     a.source = null;
     a.stream = null;
     renderMic();
+    renderStatus();
     logLine("Mic off.");
   }
 
   // --------------------------------------------------------------------- UI
-  els.btnMic.addEventListener("click", () => {
-    if (state.micOn) stopMic();
-    else startMic();
+  if (els.btnStart) els.btnStart.addEventListener("click", () => { startCall("voice"); });
+  if (els.btnTypeInstead) els.btnTypeInstead.addEventListener("click", () => { startCall("text"); });
+  for (const b of els.langButtons) {
+    b.addEventListener("click", () => setLang(b.getAttribute("data-lang"), { persist: true }));
+  }
+  els.btnMic.addEventListener("click", async () => {
+    if (state.micOn) { stopMic(); return; }
+    const ok = await startMic();
+    if (!ok) {
+      const text = micErrorText(state.micLastError);
+      errLine(text);
+      toast(text);
+      return;
+    }
+    maybeGreet();
   });
+  // Start over: the server gets a fresh session, the page returns to the first screen, and the
+  // next Start a call greets again.
   els.btnReset.addEventListener("click", () => {
-    if (!sendJson({ type: "reset" })) return;
+    const sent = sendJson({ type: "reset" });
     clearPlayback();
     resetPanels();
     clearFlow();
-    logLine("Session reset.");
+    if (sent) logLine("Session reset.");
+    if (state.micOn) stopMic();
+    state.call = freshCall();
+    state.greeted = false;
+    state.turnOpen = false;
+    state.openTurnId = null;
+    state.runningTool = "";
+    state.hearing = false;
+    state.playing = false;
+    state.textStreaming = false;
+    clearTimeout(state.turnWatchdog);
+    state.usedPhrases.clear();
+    renderPhrases();
+    renderCall();
+    renderControls();
+    renderStatus();
+    logLine("Call ended.");
   });
   els.textForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (els.btnSend.disabled) return; // Enter still submits a form whose button is disabled
     const text = els.textInput.value.trim();
     if (!text) return;
-    try { await ensureAudio(); } catch (err) { console.warn("audio unavailable, text only:", err); }
-    if (!sendJson({ type: "text", text })) return;
-    els.textInput.value = "";
-    setInterim("");
-    finalUserLine(text);
-    state.lastUserTurnEndAt = now();
+    if (await sendUserText(text)) els.textInput.value = "";
   });
   els.textInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1140,11 +1832,15 @@
   let hoodOpen = false;
   try { hoodOpen = localStorage.getItem(HOOD_KEY) === "1"; } catch {}
   setHood(hoodOpen, false);
+  state.lang = initialLang();
+  setLang(state.lang, { persist: false, send: false });
   renderModelBanner();
   renderState({});
   renderTools();
   renderLatency();
+  renderCall();
   renderConn();
   renderControls();
+  renderStatus();
   connect();
 })();
