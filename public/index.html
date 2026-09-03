@@ -162,23 +162,23 @@
 <details class="demo">
   <summary>Demo script (8 steps)</summary>
   <ol>
-    <li><b>Asks about most recent order.</b> Say <q>Hi, this is Anna Weber, my phone number is +49 30 1234567. Can you tell me about my most recent order?</q>
-      <small>Watch: find_customer, then get_order HM-1042. State shows Anna Weber (vip), orders HM-1042 processing and HM-0977 delivered, active order HM-1042.</small></li>
-    <li><b>Interrupts the agent.</b> Start talking while the agent is still reading the order back (voice), or send the next line while it is still answering (text).
+    <li><b>Asks about most recent order.</b> Say <q>Hi, this is Anna Weber, my customer number is HM-2201. What's happening with my most recent order?</q>
+      <small>Watch: find_customer (get_order HM-1042 may follow). State shows Anna Weber (vip), orders HM-1042 processing and HM-0977 delivered, active order HM-1042.</small></li>
+    <li><b>Interrupts the agent.</b> Start talking while the agent is still reading the order back (voice), or send the next line while it is still answering (text). Say <q>Sorry to interrupt. Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</q>
       <small>Watch: clear_audio arrives, playback stops at once, the cut agent line is struck through and marked (interrupted), the latency row for that turn is marked cut.</small></li>
-    <li><b>Switches to a damaged item from an earlier order.</b> Say <q>Actually, wait. I have a problem with a lamp from an earlier order, it arrived damaged.</q>
+    <li><b>Switches to a damaged item from an earlier order.</b> The line above already carries the switch; if you did not interrupt, say <q>Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</q>
       <small>Watch: get_order HM-0977, then check_resolution_options with issue damaged. Active order becomes HM-0977.</small></li>
     <li><b>Agent determines resolution or escalation.</b> The lamp is EUR 240, above the 200 limit, so the playbook flags escalation. If the agent asks whether to open a case, say <q>Yes please, go ahead with that.</q>
       <small>Watch: apply_resolution is blocked with an escalate-instead reason if the model tries it, escalate_case returns a case id, Cases goes to 1 and the agent reads the id to you.</small></li>
-    <li><b>Returns to the original order and asks for Friday.</b> Say <q>Ok. Back to the sofa cover order. Can you move the delivery to Friday?</q>
+    <li><b>Returns to the original order and asks for Friday.</b> Say <q>Thanks. Now back to the sofa cover. Can you move the delivery to Friday?</q>
       <small>Watch: get_order HM-1042 (or straight to get_delivery_slots). HM-1042 is still processing so it can be moved. Friday is 4 September 2026 (Sunday 6 September is skipped in the slot list).</small></li>
-    <li><b>Valid slots and choice captured.</b> The agent offers Friday 4 September, 09-13 or 13-18, from get_delivery_slots. Say <q>The morning slot on Friday please.</q>
+    <li><b>Valid slots and choice captured.</b> The agent offers Friday 4 September, 09-13 or 13-18, from get_delivery_slots. Say <q>The morning slot on Friday, please.</q>
       <small>Watch: Pending in the state panel shows reschedule HM-1042, date 2026-09-04, window 09-13. If the model tries apply_resolution now it shows NEEDS_CONFIRMATION or a blocked row; the ledger stays empty.</small></li>
     <li><b>Confirmation asked.</b> The agent asks one question: shall I move it to Friday 4 September, 09-13? Nothing has been applied yet.
       <small>Watch: Applied is still 0. A reply with a question mark or a no/wait/not in it can never pass the guard.</small></li>
-    <li><b>Executed exactly once.</b> Say <q>Yes, confirm.</q>
+    <li><b>Executed exactly once.</b> Say <q>Yes, go ahead.</q>
       <small>Watch: apply_resolution ends with APPLIED and a receipt. The receipt id appears in green in the state panel, Applied goes to 1, Pending clears.</small></li>
-    <li class="sub"><b>Retry shows ALREADY_APPLIED.</b> Say <q>Yes, confirm.</q> again, or <q>Book that Friday morning slot again, just to be sure.</q>
+    <li class="sub"><b>Retry shows ALREADY_APPLIED.</b> Say <q>Sorry, did that go through? Book Friday morning again just to be safe.</q>
       <small>Watch: apply_resolution is blocked (or ends) with ALREADY_APPLIED and the same receipt. Applied stays 1, the receipt id does not change.</small></li>
   </ol>
   <p>Other paths, after Reset session: Jonas Berg (HM-2305, standard tier), order HM-1010 is 4 days late, EUR 15 compensation after a yes, and no slots because it already shipped; the ceramic vase set from HM-1031 arrived broken, stock is 0 so the only option is a EUR 45 refund. Start the server with FAIL_TOOL=apply_resolution to show the failure path: the agent apologises and offers to escalate.</p>
