@@ -27,6 +27,20 @@ export function escalationNextStep(lang: Lang = DEFAULT_LANG): string {
   return lang === "tr" ? ESCALATION_NEXT_STEP_TR : ESCALATION_NEXT_STEP;
 }
 
+/**
+ * The step the model must take after it has options or slots in hand. Haiku follows an
+ * instruction in a tool result more reliably than the same sentence in the system prompt:
+ * without this it sometimes asks "shall I?" before calling apply_resolution, so no proposal
+ * is registered and the customer's yes hits the guard instead of the action.
+ */
+export const PROPOSE_NEXT_STEP =
+  "When the customer picks one of these, call apply_resolution with customerConfirmed false straight away. It applies nothing and returns the exact confirmation question to read out. Do not ask for confirmation before that call.";
+export const PROPOSE_NEXT_STEP_TR =
+  "Müşteri bunlardan birini seçtiğinde hemen apply_resolution aracını customerConfirmed false ile çağırın. Hiçbir şey uygulanmaz, okunacak onay sorusu geri döner. Bu çağrıdan önce onay istemeyin.";
+export function proposeNextStep(lang: Lang = DEFAULT_LANG): string {
+  return lang === "tr" ? PROPOSE_NEXT_STEP_TR : PROPOSE_NEXT_STEP;
+}
+
 const FindCustomerParams = Type.Object({
   phone: Type.Optional(Type.String({ description: "Customer phone number in any format" })),
   customerRef: Type.Optional(Type.String({ description: "Customer reference such as HM-2201" })),
@@ -207,6 +221,7 @@ export function createTools(session: Session): AgentTool[] {
         options: res.options,
         escalationRequired: res.escalationRequired,
         ...(res.note ? { note: res.note } : {}),
+        ...(res.escalationRequired ? {} : { nextStep: proposeNextStep(session.lang) }),
       });
     },
   };
@@ -230,6 +245,7 @@ export function createTools(session: Session): AgentTool[] {
         currentDeliveryDate: order.promisedDeliveryDate,
         currentDeliveryDateLabel: humanDate(order.promisedDeliveryDate, session.lang),
         slots,
+        nextStep: proposeNextStep(session.lang),
       });
     },
   };
