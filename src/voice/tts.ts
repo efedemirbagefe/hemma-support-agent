@@ -2,13 +2,23 @@
  * Engine-neutral TTS contract. ElevenLabs (elevenlabs.ts) and Deepgram Aura (deepgram-tts.ts)
  * implement it; session-voice.ts only talks to these types and picks the engine per turn:
  * ElevenLabs while it has a key, has not failed twice in the turn and is not resting after a
- * bad turn, then Deepgram Aura under the same conditions, otherwise text only.
+ * bad turn, then Deepgram Aura under the same conditions, then the browser's own speech
+ * synthesis (session-voice.ts speaks it directly, no TtsStream/TtsEngine: see "speak" in
+ * CONTRACTS.md), otherwise text only.
  */
 
 import type { Lang } from "../domain/lang";
 
-export type TtsEngineName = "elevenlabs" | "deepgram" | "none";
+/** Every value a turn's spoken output can be attributed to, for reporting (latency, logs). */
+export type TtsEngineName = "elevenlabs" | "deepgram" | "browser" | "none";
 export type TtsVendor = Exclude<TtsEngineName, "none">;
+/**
+ * Vendors with a real streamed socket and the TtsStream/TtsEngine machinery below (retry,
+ * fallback, cooldown, lostChunks). The browser tier has no socket, no partial-audio recovery
+ * and no cooldown: session-voice.ts talks to it directly with "speak" / "speak_start" /
+ * "speak_done" messages, so it is excluded from these types.
+ */
+export type StreamedTtsVendor = Exclude<TtsVendor, "browser">;
 
 /** PCM 16 kHz mono Int16: 32 bytes per millisecond of audio. */
 const PCM_BYTES_PER_MS = 32;
@@ -21,7 +31,7 @@ const PCM_BYTES_PER_MS = 32;
  * whose audio fully arrived is not re-sent, while a chunk with clearly too little audio behind
  * it is. When the estimate is wrong it errs toward a repeated sentence, never a missing one.
  */
-export const MS_PER_CHAR_FLOOR: Record<TtsVendor, number> = { elevenlabs: 40, deepgram: 60 };
+export const MS_PER_CHAR_FLOOR: Record<StreamedTtsVendor, number> = { elevenlabs: 40, deepgram: 60 };
 
 /**
  * Chunks a dying stream did not deliver, in order. An engine synthesizes a socket's chunks one
@@ -60,7 +70,7 @@ export interface TtsStreamEvents {
 /** One per turn and engine: the socket that turns sentences into PCM. */
 export interface TtsStream {
   readonly id: string;
-  readonly engine: TtsVendor;
+  readonly engine: StreamedTtsVendor;
   readonly cancelled: boolean;
   /**
    * True while text can still be sent on this stream. False as soon as the socket leaves OPEN,
@@ -94,7 +104,7 @@ export interface TtsStream {
 }
 
 export interface TtsEngine {
-  readonly name: TtsVendor;
+  readonly name: StreamedTtsVendor;
   /**
    * Languages the engine can speak. The session only picks an engine that lists the turn's
    * language: ElevenLabs flash v2.5 speaks English and Turkish with the same voice, Deepgram
@@ -119,7 +129,7 @@ export class FailingTtsStream implements TtsStream {
   private ended = false;
 
   constructor(
-    readonly engine: TtsVendor,
+    readonly engine: StreamedTtsVendor,
     private readonly events: TtsStreamEvents,
     private readonly reason: string,
   ) {

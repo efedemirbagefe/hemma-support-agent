@@ -420,6 +420,10 @@ test("session: a barge-in with no transcript re-answers the interrupted question
     resumeAfterBargeInMs: 200,
     log: () => {},
   });
+  // This test is about STT barge-in / resume, not TTS: no vendor engine is configured, and
+  // without this the default-available browser tier would wait on speak_done acks this fake
+  // client never sends, delaying "the resumed turn completed" past this test's own sleeps.
+  ws.clientJson({ type: "caps", browserTts: false });
   const socketsBefore = dg.sockets.length;
   ws.clientAudio(20); // first mic frame opens the Deepgram socket
   await dg.waitForSocket(socketsBefore + 1);
@@ -550,6 +554,9 @@ test("session: TTS failure gives one toast per turn and does not stop the text",
   el.failConnections.add(first);
   el.failConnections.add(first + 1);
   const vs = new VoiceSession(ws as unknown as WebSocket, { elevenLabsKey: "el-key", createAgent: factory, log: () => {} });
+  // No Aura configured; opt the browser tier out too so exhausting the only engine still lands
+  // on "one toast, text only" as this test's name says (the browser fallback has its own tests).
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "tell me three things" });
   await sleep(600);
   const toasts = ws.errors().filter((m) => m.startsWith("Speech synthesis error"));
@@ -581,6 +588,9 @@ test("session: with both engines failing twice, one toast and ttsEngine none", a
     createAgent: factory,
     log: () => {},
   });
+  // Both vendor engines are about to be exhausted; opt the browser tier out too so this test
+  // still covers the "truly nothing left" path (see the dedicated browser-tier tests below).
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "tell me two things" });
   await sleep(700);
   assert.equal(ws.errors().filter((m) => m.startsWith("Speech synthesis error")).length, 1, `got ${JSON.stringify(ws.errors())}`);
@@ -652,7 +662,7 @@ test("session: Aura alone (no ElevenLabs key) speaks every sentence and drains o
   const auraBefore = aura.received.length;
   const vs = new VoiceSession(ws as unknown as WebSocket, { deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
   const ready = ws.ofType("ready")[0];
-  assert.deepEqual(ready.voice, { stt: false, tts: true, ttsEngines: ["deepgram"] });
+  assert.deepEqual(ready.voice, { stt: false, tts: true, ttsEngines: ["deepgram", "browser"] });
   ws.clientJson({ type: "text", text: "when does it ship" });
   await sleep(400);
   assert.deepEqual(aura.received.slice(auraBefore), ["Your order ships Friday.", "Anything else"]);
@@ -785,6 +795,9 @@ test("chaos: fail=tool reaches the model through pi's real Agent (state.tools se
     },
   });
   assert.deepEqual(ws.ofType("ready")[0].chaos, ["tool"]);
+  // This test is about fail=tool, not TTS; no vendor engine is configured, so opt the
+  // default-available browser tier out too rather than waiting on acks this client never sends.
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "what can you do about the lamp" });
   for (let i = 0; i < 300 && ws.ofType("latency").length === 0; i++) await sleep(10);
   const tool = ws.ofType("tool");
@@ -824,7 +837,7 @@ test("chaos: fail=tts skips ElevenLabs without opening a socket and speaks throu
   });
   const ready = ws.ofType("ready")[0];
   assert.deepEqual(ready.chaos, ["tts"]);
-  assert.deepEqual(ready.voice, { stt: false, tts: true, ttsEngines: ["elevenlabs", "deepgram"] });
+  assert.deepEqual(ready.voice, { stt: false, tts: true, ttsEngines: ["elevenlabs", "deepgram", "browser"] });
   ws.clientJson({ type: "text", text: "hello" });
   await sleep(400);
   assert.equal(el.connections, elBefore, "no ElevenLabs socket was opened");
@@ -892,6 +905,9 @@ test("session: a failed tool is toasted once with the model's failure text and t
   const ws = new FakeClientWs();
   const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
   assert.deepEqual(ws.ofType("ready")[0].chaos, []);
+  // No vendor engine configured; opt out of the default-available browser tier too so this test
+  // stays about the tool failure toast, not about waiting on speak acks nobody sends.
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "what can you do about the lamp" });
   await sleep(200);
   const tool = ws.ofType("tool");
@@ -1097,6 +1113,9 @@ test("session: with every engine resting the turn says so once and stays text on
     createAgent: factory,
     log: () => {},
   });
+  // Both engines are about to rest; opt the browser tier out too so this still covers the
+  // "truly nothing left, one toast" path (the browser fallback has its own tests below).
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "turn one" });
   await sleep(500);
   assert.equal(ws.errors().filter((m) => m.startsWith("Speech synthesis error")).length, 1, JSON.stringify(ws.errors()));
@@ -1199,26 +1218,34 @@ test("elevenlabs: the Turkish stream URL enforces language_code=tr, the English 
   }
 });
 
-test("session: ready echoes the language and lists only engines that speak it", () => {
+test("session: ready echoes the language, lists the vendor engines that speak it, and always assumes the browser tier until caps says otherwise", () => {
   const { factory } = fakeAgentFactory(async () => {});
   const both = new FakeClientWs();
   const a = new VoiceSession(both as unknown as WebSocket, { deepgramKey: "k", elevenLabsKey: "el", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
   assert.equal(both.ofType("ready")[0].lang, "en");
-  assert.deepEqual(both.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs", "deepgram"] });
+  assert.deepEqual(both.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs", "deepgram", "browser"] });
   assert.equal(both.ofType("state")[0].session.lang, "en");
   a.close();
 
   const tr = new FakeClientWs();
   const b = new VoiceSession(tr as unknown as WebSocket, { lang: "tr", deepgramKey: "k", elevenLabsKey: "el", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
   assert.equal(tr.ofType("ready")[0].lang, "tr");
-  assert.deepEqual(tr.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs"] }, "Aura is English only");
+  assert.deepEqual(tr.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["elevenlabs", "browser"] }, "Aura is English only, but the browser tier is language neutral");
   assert.equal(tr.ofType("state")[0].session.lang, "tr");
   b.close();
 
+  // No vendor engine speaks Turkish (Aura is English only), so before caps arrives the browser
+  // tier is the only thing ready reports: this is the exact "Turkish must not go silent" case.
   const auraOnly = new FakeClientWs();
   const c = new VoiceSession(auraOnly as unknown as WebSocket, { lang: "tr", deepgramKey: "k", deepgramTtsKey: "dg", createAgent: factory, log: () => {} });
-  assert.deepEqual(auraOnly.ofType("ready")[0].voice, { stt: true, tts: false, ttsEngines: [] }, "text only: no engine speaks Turkish");
+  assert.deepEqual(auraOnly.ofType("ready")[0].voice, { stt: true, tts: true, ttsEngines: ["browser"] }, "browser tier assumed available by default");
   c.close();
+
+  // With no vendor keys at all, same story: browser is still offered.
+  const none = new FakeClientWs();
+  const d = new VoiceSession(none as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  assert.deepEqual(none.ofType("ready")[0].voice, { stt: false, tts: true, ttsEngines: ["browser"] }, "no vendor keys at all: the browser tier is the only tts offered");
+  d.close();
 });
 
 test("session: a lang message switches the domain session and reopens Deepgram on the Turkish model at the next frame", async () => {
@@ -1230,6 +1257,9 @@ test("session: a lang message switches the domain session and reopens Deepgram o
   const ws = new FakeClientWs();
   const logs: string[] = [];
   const vs = new VoiceSession(ws as unknown as WebSocket, { deepgramKey: "test-key", createAgent: factory, log: (m) => logs.push(m) });
+  // This test is about the lang switch and STT reconnect, not TTS; no vendor engine is
+  // configured, so opt the default-available browser tier out too (its own tests cover it).
+  ws.clientJson({ type: "caps", browserTts: false });
   const before = dg.sockets.length;
   ws.clientAudio(20);
   const s1 = await dg.waitForSocket(before + 1);
@@ -1275,6 +1305,9 @@ test("session: a Turkish turn is spoken by ElevenLabs and never falls back to Au
   const elBefore = el.received.length;
   const auraConnBefore = aura.connections;
   const vs = new VoiceSession(ws as unknown as WebSocket, { lang: "tr", elevenLabsKey: "el-key", deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
+  // The browser tier's Turkish fallback has its own dedicated test; opt out here so exhausting
+  // ElevenLabs still lands on "none" as this test's name says.
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "siparişim nerede" });
   await sleep(500);
   assert.deepEqual(el.received.slice(elBefore), ["Merhaba, siparişiniz Salı günü geliyor."]);
@@ -1298,13 +1331,17 @@ test("session: a Turkish turn is spoken by ElevenLabs and never falls back to Au
   vs.close();
 });
 
-test("session: switching to Turkish with only Aura configured says so once and the turn is text only", async () => {
+test("session: switching to Turkish with only Aura configured, and the browser tier off too, says so once and the turn is text only", async () => {
   const { factory } = fakeAgentFactory(async (emit) => {
     emit(delta("Cevap. "));
   });
   const ws = new FakeClientWs();
   const auraConnBefore = aura.connections;
   const vs = new VoiceSession(ws as unknown as WebSocket, { deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
+  // With the browser tier available (the default) this scenario is exactly the motivating
+  // "Turkish must not go silent" case and is covered by its own test below; this one keeps
+  // testing the older "genuinely nothing can speak" path by opting the browser tier out too.
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "lang", lang: "tr" });
   await sleep(20);
   assert.equal(ws.errors().filter((m) => m.startsWith("No speech engine for tr")).length, 1, JSON.stringify(ws.errors()));
@@ -1394,6 +1431,9 @@ test("session: greet after the conversation started is ignored; the English gree
   });
   const ws = new FakeClientWs();
   const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  // Neither session below configures a vendor engine; opt the default-available browser tier
+  // out too so these greet-idempotency checks stay fast (the browser tier has its own tests).
+  ws.clientJson({ type: "caps", browserTts: false });
   ws.clientJson({ type: "text", text: "hello" });
   await sleep(200);
   ws.clientJson({ type: "greet" });
@@ -1405,6 +1445,7 @@ test("session: greet after the conversation started is ignored; the English gree
   const ws2 = new FakeClientWs();
   const two = fakeAgentFactory(async () => {});
   const vs2 = new VoiceSession(ws2 as unknown as WebSocket, { createAgent: two.factory, log: () => {} });
+  ws2.clientJson({ type: "caps", browserTts: false });
   ws2.clientJson({ type: "greet" });
   await sleep(100);
   assert.equal(ws2.ofType("agent_text")[0]?.delta, GREETINGS.en);
@@ -1467,5 +1508,206 @@ test("session: a barge-in during the greeting cuts the audio and does not re-ans
   await sleep(300);
   assert.equal(ws.ofType("clear_audio").length, 1, "playback cut");
   assert.deepEqual(calls, [], "nothing is re-answered: a greeting has no question to repeat");
+  vs.close();
+});
+
+// ------------------------------------------------------------------ browser tts tier
+
+test("browser tts: engine selection tries a vendor engine first, then the browser tier, then none only if the client cannot", async () => {
+  // A working vendor engine is preferred: the browser tier is never touched.
+  {
+    const { factory } = fakeAgentFactory(async (emit) => emit(delta("Vendor speaks. ")));
+    const ws = new FakeClientWs();
+    const vs = new VoiceSession(ws as unknown as WebSocket, { elevenLabsKey: "el-key", createAgent: factory, log: () => {} });
+    ws.clientJson({ type: "text", text: "hi" });
+    await sleep(200);
+    assert.equal(ws.ofType("speak").length, 0, "a working vendor engine is preferred over the browser tier");
+    assert.equal(ws.ofType("latency")[0]?.ttsEngine, "elevenlabs");
+    vs.close();
+  }
+  // No vendor engine at all, browser tier available (the default before caps arrives): it speaks.
+  {
+    const { factory } = fakeAgentFactory(async (emit) => emit(delta("Browser speaks. ")));
+    const ws = new FakeClientWs();
+    const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+    ws.clientJson({ type: "text", text: "hi" });
+    await sleep(50);
+    const speaks = ws.ofType("speak");
+    assert.equal(speaks.length, 1);
+    assert.equal(speaks[0].text, "Browser speaks.");
+    assert.equal(speaks[0].lang, "en");
+    vs.close();
+  }
+  // No vendor engine, and the client explicitly reported it cannot synthesize locally: none.
+  {
+    const { factory } = fakeAgentFactory(async (emit) => emit(delta("Text only. ")));
+    const ws = new FakeClientWs();
+    const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+    ws.clientJson({ type: "caps", browserTts: false });
+    ws.clientJson({ type: "text", text: "hi" });
+    await sleep(50);
+    assert.equal(ws.ofType("speak").length, 0);
+    const latency = ws.ofType("latency");
+    assert.equal(latency.length, 1, "the turn finalizes promptly; it never waits on a tier that will never speak");
+    assert.equal(latency[0].ttsEngine, "none");
+    assert.equal(ws.ofType("agent_text").map((m) => m.delta).join(""), "Text only. ", "text still streams");
+    vs.close();
+  }
+});
+
+test("browser tts: Turkish chooses the browser tier when only Aura (English only) is configured", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Merhaba, siparişiniz yolda. "));
+  });
+  const ws = new FakeClientWs();
+  const auraConnBefore = aura.connections;
+  const vs = new VoiceSession(ws as unknown as WebSocket, { lang: "tr", deepgramTtsKey: "dg-key", createAgent: factory, log: () => {} });
+  assert.deepEqual(ws.ofType("ready")[0].voice, { stt: false, tts: true, ttsEngines: ["browser"] });
+  ws.clientJson({ type: "text", text: "siparişim nerede" });
+  await sleep(50);
+  const speaks = ws.ofType("speak");
+  assert.equal(speaks.length, 1);
+  assert.equal(speaks[0].text, "Merhaba, siparişiniz yolda.");
+  assert.equal(speaks[0].lang, "tr");
+  assert.equal(aura.connections, auraConnBefore, "Aura is never opened for Turkish; the browser tier covers it instead");
+  assert.equal(ws.errors().length, 0, "no 'no speech engine for tr' toast: the browser tier is offered");
+  ws.clientJson({ type: "speak_start", turnId: speaks[0].turnId, seq: speaks[0].seq, t: Date.now() });
+  ws.clientJson({ type: "speak_done", turnId: speaks[0].turnId, seq: speaks[0].seq, t: Date.now() });
+  await sleep(20);
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0].ttsEngine, "browser");
+  assert.deepEqual(latency[0].ttsEngines, ["browser"]);
+  vs.close();
+});
+
+test("browser tts: speak / speak_done accounting finalizes the turn only once every sentence is acked", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Hello there. General Kenobi. "));
+  });
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "text", text: "hi" });
+  await sleep(30);
+  const speaks = ws.ofType("speak");
+  assert.deepEqual(speaks.map((m) => m.text), ["Hello there.", "General Kenobi."]);
+  assert.deepEqual(speaks.map((m) => m.seq), [0, 1]);
+  assert.equal(ws.ofType("latency").length, 0, "the turn has not finalized: nothing has been acked yet");
+
+  ws.clientJson({ type: "speak_start", turnId: speaks[0].turnId, seq: 0, t: Date.now() });
+  await sleep(10);
+  const midLatency = ws.ofType("latency");
+  assert.equal(midLatency.length, 0, "first sentence started but has not finished, and the second is still outstanding");
+
+  ws.clientJson({ type: "speak_done", turnId: speaks[0].turnId, seq: 0, t: Date.now() });
+  await sleep(10);
+  assert.equal(ws.ofType("latency").length, 0, "one sentence acked, one still outstanding");
+
+  ws.clientJson({ type: "speak_start", turnId: speaks[1].turnId, seq: 1, t: Date.now() });
+  ws.clientJson({ type: "speak_done", turnId: speaks[1].turnId, seq: 1, t: Date.now() });
+  await sleep(20);
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1, "finalized once every sent sentence has a speak_done");
+  assert.equal(latency[0].ttsEngine, "browser");
+  assert.deepEqual(latency[0].ttsEngines, ["browser"]);
+  assert.ok(latency[0].firstAudioMs !== null, "stamped from the first speak_start, like played is for vendor audio");
+  assert.equal(ws.audioBytes, 0, "no binary PCM frames on this tier");
+  vs.close();
+});
+
+test("browser tts: a sentence with no speak_done finalizes anyway after the safety timeout", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Only one sentence. "));
+  });
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, browserSpeakSilenceMs: 60, log: () => {} });
+  ws.clientJson({ type: "text", text: "hi" });
+  await sleep(20);
+  const speaks = ws.ofType("speak");
+  assert.equal(speaks.length, 1);
+  // The utterance is reported as started (so the engine can be credited) but never reports done.
+  ws.clientJson({ type: "speak_start", turnId: speaks[0].turnId, seq: speaks[0].seq, t: Date.now() });
+  await sleep(20);
+  assert.equal(ws.ofType("latency").length, 0, "still waiting on speak_done");
+  await sleep(80); // well past the 60 ms safety window armed when the speak was sent
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1, "the turn finalized on its own instead of hanging forever");
+  assert.equal(latency[0].ttsEngine, "browser", "a speak_start did arrive, so the engine is credited even though speak_done never came");
+  vs.close();
+});
+
+test("browser tts: a new turn cancels the previous one; its remaining sentences are never sent", async () => {
+  const { factory } = fakeAgentFactory(async (emit, signal, text) => {
+    if (text === "first") {
+      emit(delta("First sentence one. "));
+      if (!(await pause(300, signal))) return;
+      emit(delta("First sentence two. "));
+    } else {
+      emit(delta("Second answer. "));
+    }
+  });
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "text", text: "first" });
+  await sleep(50);
+  const firstSpeaks = ws.ofType("speak");
+  assert.equal(firstSpeaks.length, 1, "only the first sentence went out before the model's pause");
+  // Acknowledge it started, so the cancelled turn's report can credit the browser tier: it did
+  // speak something before being cut, which is exactly what the assertion below checks.
+  ws.clientJson({ type: "speak_start", turnId: firstSpeaks[0].turnId, seq: firstSpeaks[0].seq, t: Date.now() });
+  await sleep(10);
+  ws.clientJson({ type: "text", text: "second" }); // cancels the still-running first turn
+  await sleep(400); // past the first turn's 300 ms pause, if it had kept running
+  const speaks = ws.ofType("speak");
+  assert.equal(speaks.filter((m) => m.text === "First sentence two.").length, 0, "the cancelled turn's second sentence was never sent");
+  assert.ok(speaks.some((m) => m.text === "Second answer."), "the new turn spoke normally");
+  assert.equal(ws.ofType("clear_audio").length, 1, "the new turn cleared the previous one's audio once");
+  const cancelledLatency = ws.ofType("latency").find((l) => l.cancelled === true);
+  assert.ok(cancelledLatency, "the first turn is reported cancelled");
+  assert.equal(cancelledLatency!.ttsEngine, "browser", "it did speak one sentence before being cut");
+  vs.close();
+});
+
+test("chaos: fail=tts,browsertts forces a turn all the way to text only even with the browser tier available", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Chaos text only. "));
+  });
+  const ws = new FakeClientWs();
+  const elBefore = el.connections;
+  const vs = new VoiceSession(ws as unknown as WebSocket, {
+    elevenLabsKey: "el-key",
+    chaos: ["tts", "browsertts"],
+    createAgent: factory,
+    log: () => {},
+  });
+  assert.deepEqual(ws.ofType("ready")[0].chaos, ["tts", "browsertts"]);
+  assert.deepEqual(ws.ofType("ready")[0].voice, { stt: false, tts: true, ttsEngines: ["elevenlabs"] }, "browsertts chaos drops browser from the offered list too");
+  ws.clientJson({ type: "text", text: "hello" });
+  await sleep(300);
+  assert.equal(el.connections, elBefore, "fail=tts never opens a real ElevenLabs socket");
+  assert.equal(ws.ofType("speak").length, 0, "browsertts chaos blocks the browser tier as well");
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0].ttsEngine, "none");
+  assert.ok(ws.errors().some((m) => m.startsWith("Speech synthesis error")), JSON.stringify(ws.errors()));
+  assert.equal(ws.ofType("agent_text").map((m) => m.delta).join(""), "Chaos text only. ");
+  vs.close();
+});
+
+test("browser tts: caps(browserTts:false) turns a would-be browser turn into a silent, prompt text-only turn", async () => {
+  const { factory } = fakeAgentFactory(async (emit) => {
+    emit(delta("Still text. "));
+  });
+  const ws = new FakeClientWs();
+  const vs = new VoiceSession(ws as unknown as WebSocket, { createAgent: factory, log: () => {} });
+  ws.clientJson({ type: "caps", browserTts: false, voices: [] });
+  await sleep(10);
+  ws.clientJson({ type: "text", text: "hi" });
+  await sleep(50);
+  assert.equal(ws.ofType("speak").length, 0);
+  const latency = ws.ofType("latency");
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0].ttsEngine, "none");
+  assert.equal(ws.errors().length, 0, "no vendor engine was ever configured, so there is nothing to toast about");
   vs.close();
 });

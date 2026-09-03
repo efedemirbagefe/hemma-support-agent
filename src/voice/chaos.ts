@@ -1,19 +1,25 @@
 /**
- * Demo chaos toggles. They come only from the /ws upgrade URL (`?fail=tool,tts,stt`), never
- * from env, and are off by default.
+ * Demo chaos toggles. They come only from the /ws upgrade URL (`?fail=tool,tts,stt,browsertts`),
+ * never from env, and are off by default.
  *
  * - tool: the first `check_resolution_options` call of the session throws; the second works.
  *   Done by adding `simulateFailure: true` to that call's params, which the domain's own
  *   `maybeFail` hook turns into a thrown error (src/domain is not touched).
  * - tts: every ElevenLabs stream of a turn fails without opening a socket, so the turn's
- *   sentences go through the retry path and then the Deepgram Aura fallback.
+ *   sentences go through the retry path and then the Deepgram Aura fallback (and, once both are
+ *   down or unavailable for the turn's language, the browser tier below that).
  * - stt: the Deepgram listen socket is closed once, right after the first final transcript;
  *   the session's reconnect backoff reopens it on the next audio frame.
+ * - browsertts: the browser tts tier (session-voice.ts) is never offered, as if the client had
+ *   reported `{type:"caps", browserTts:false}`. On its own this only matters once no vendor
+ *   engine can speak the turn's language either; combined with `tts` (`?fail=tts,browsertts`)
+ *   it forces a turn all the way to text only, which is otherwise hard to demonstrate once a
+ *   browser tier exists at all.
  */
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
-export type ChaosFlag = "tool" | "tts" | "stt";
-export const CHAOS_FLAGS: readonly ChaosFlag[] = ["tool", "tts", "stt"];
+export type ChaosFlag = "tool" | "tts" | "stt" | "browsertts";
+export const CHAOS_FLAGS: readonly ChaosFlag[] = ["tool", "tts", "stt", "browsertts"];
 /** The tool that fail=tool breaks once per session. */
 export const CHAOS_TOOL = "check_resolution_options";
 

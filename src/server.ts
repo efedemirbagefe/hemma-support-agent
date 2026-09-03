@@ -10,6 +10,7 @@ import { parseChaos } from "./voice/chaos";
 import { describeSttModel } from "./voice/deepgram";
 import { DEEPGRAM_TTS_MODEL } from "./voice/deepgram-tts";
 import { DEFAULT_VOICE_ID } from "./voice/elevenlabs";
+import type { TtsVendor } from "./voice/tts";
 import { VoiceSession } from "./voice/session-voice";
 import { VENDOR_URL_ENV, vendorUrlOverride } from "./voice/vendor-url";
 
@@ -57,11 +58,19 @@ const voice = {
   elevenLabsKey: envFirst("ELEVENLABS_API_KEY"),
   // VOICE_ID is the contract name; .env.example ships ELEVENLABS_VOICE_ID. Both work.
   voiceId: envFirst("VOICE_ID", "ELEVENLABS_VOICE_ID"),
+  // Aura voice id (an aura-2-*-en model); defaults to DEEPGRAM_TTS_MODEL (deepgram-tts.ts).
+  deepgramTtsModel: envFirst("DEEPGRAM_TTS_MODEL"),
   modelId: envFirst("MODEL_ID"),
 };
 const hasAnthropic = !!envFirst("ANTHROPIC_API_KEY");
-/** TTS engines in preference order: ElevenLabs, then Deepgram Aura (same key as STT). */
-const ttsEngines = [...(voice.elevenLabsKey ? ["elevenlabs"] : []), ...(voice.deepgramKey ? ["deepgram"] : [])];
+/** Vendor TTS engines in preference order: ElevenLabs, then Deepgram Aura (same key as STT). */
+const ttsEngines: TtsVendor[] = [...(voice.elevenLabsKey ? (["elevenlabs"] as const) : []), ...(voice.deepgramKey ? (["deepgram"] as const) : [])];
+/**
+ * What a client is offered, browser tts tier included: the server always structurally offers
+ * it (a connecting browser reports the truth in its own "caps" message, see CONTRACTS.md), so
+ * even a deployment with zero vendor keys shows tts as available here.
+ */
+const exposedTtsEngines: (TtsVendor | "browser")[] = [...ttsEngines, "browser"];
 /** Extra browser origins allowed on /ws (comma separated), for a UI served from another host. */
 const extraOrigins = new Set(
   (process.env.ALLOWED_ORIGINS ?? "")
@@ -146,8 +155,10 @@ const server = http.createServer((req, res) => {
         // registry fallback when pi-ai does not know this id.
         modelId: voice.modelId ?? DEFAULT_MODEL_ID,
         stt: !!voice.deepgramKey,
-        tts: ttsEngines.length > 0,
-        ttsEngines,
+        // The browser tts tier is always structurally offered (a connecting client reports its
+        // own truth via "caps"), so this is true even with zero vendor keys configured.
+        tts: true,
+        ttsEngines: exposedTtsEngines,
       },
     });
     return;
@@ -207,6 +218,7 @@ server.on("upgrade", (req, socket, head) => {
       deepgramKey: voice.deepgramKey,
       elevenLabsKey: voice.elevenLabsKey,
       deepgramTtsKey: voice.deepgramKey,
+      deepgramTtsModel: voice.deepgramTtsModel,
       voiceId: voice.voiceId,
       modelId: voice.modelId,
       chaos,
@@ -225,19 +237,27 @@ server.listen(PORT, () => {
   log(`listening on http://localhost:${PORT}  (public: ${PUBLIC_DIR}, ws: /ws, health: /healthz)`);
   if (!hasAnthropic) log("ANTHROPIC_API_KEY missing: the agent cannot answer; only STT transcripts and errors will flow");
   if (!voice.deepgramKey) log("DEEPGRAM_API_KEY missing: voice input OFF (text input still works)");
-  if (ttsEngines.length === 0) log("ELEVENLABS_API_KEY and DEEPGRAM_API_KEY missing: voice output OFF (agent text still streams)");
-  else if (!voice.elevenLabsKey) log(`ELEVENLABS_API_KEY missing: voice output through Deepgram Aura only (${DEEPGRAM_TTS_MODEL})`);
+  const resolvedAuraModel = voice.deepgramTtsModel ?? DEEPGRAM_TTS_MODEL;
+  if (ttsEngines.length === 0) {
+    log("ELEVENLABS_API_KEY and DEEPGRAM_API_KEY missing: no vendor voice output; the browser tts tier is offered instead (features.tts=true, ttsEngines includes \"browser\")");
+  } else if (!voice.elevenLabsKey) {
+    log(`ELEVENLABS_API_KEY missing: vendor voice output through Deepgram Aura only (${resolvedAuraModel}), browser tts tier as the last resort`);
+  }
   if (voice.elevenLabsKey) {
     const source = envFirst("VOICE_ID") ? "VOICE_ID" : envFirst("ELEVENLABS_VOICE_ID") ? "ELEVENLABS_VOICE_ID" : "default";
     log(`elevenlabs voice ${voice.voiceId ?? DEFAULT_VOICE_ID} (${source})`);
     log(
       voice.deepgramKey
-        ? `tts: elevenlabs flash v2.5 primary, deepgram ${DEEPGRAM_TTS_MODEL} fallback`
-        : "tts: elevenlabs only (no DEEPGRAM_API_KEY, so no Aura fallback)",
+        ? `tts: elevenlabs flash v2.5 primary, deepgram ${resolvedAuraModel} fallback, browser tts tier last resort`
+        : "tts: elevenlabs primary (no DEEPGRAM_API_KEY, so no Aura fallback), browser tts tier last resort",
     );
   }
+  if (voice.deepgramKey) {
+    const auraSource = envFirst("DEEPGRAM_TTS_MODEL") ? "DEEPGRAM_TTS_MODEL" : "default";
+    log(`aura voice ${resolvedAuraModel} (${auraSource})`);
+  }
   if (voice.deepgramKey && voice.elevenLabsKey) {
-    log(`voice ON (deepgram ${describeSttModel("en")} for en, ${describeSttModel("tr")} for tr; elevenlabs flash v2.5 both, aura en only)`);
+    log(`voice ON (deepgram ${describeSttModel("en")} for en, ${describeSttModel("tr")} for tr; elevenlabs flash v2.5 both, aura en only, browser tts tier for the rest)`);
   }
   if (voice.modelId) log(`model override: ${voice.modelId}`);
   if (extraOrigins.size > 0) log(`extra ws origins: ${[...extraOrigins].join(", ")}`);

@@ -322,8 +322,12 @@
     countdownTimer: null,
     audio: { ctx: null, playback: null, capture: null, source: null, stream: null, inputRate: 0, outputRate: 0, initPromise: null, carry: null },
     pendingAudio: [],
-    voice: { stt: true, tts: true, ttsEngine: "" }, // server capabilities from the `ready` message
+    voice: { stt: true, tts: true, ttsEngine: "", ttsEngines: [] }, // server capabilities from the `ready` message
     chaos: [], // active chaos toggles from the `ready` message (the ?fail= query)
+    // Browser tts tier (CONTRACTS.md "speak"): local Web Speech API playback when no vendor
+    // engine can speak a turn. `capsSent` is re-armed per socket, like `greeted`.
+    browserTts: { supported: false, voiceCache: Object.create(null) },
+    capsSent: false,
     // Model availability. `modelOffline` is hard evidence (healthz features.model false, or an
     // "Agent unavailable" error) and disables Send and the mic; `modelError` is a "Model error"
     // event and only shows the banner, so a transient failure keeps the controls usable. Both
@@ -1248,6 +1252,7 @@
       state.reconnectDelay = 1000;
       state.lostNoted = false;
       state.greeted = false; // a new socket is a new server session
+      state.capsSent = false; // caps is one-shot per socket too
       state.turnOpen = false;
       state.openTurnId = null;
       state.runningTool = "";
@@ -1309,15 +1314,18 @@
       case "ready": {
         state.ready = true;
         const voice = msg.voice && typeof msg.voice === "object" ? msg.voice : {};
+        const ttsEngines = Array.isArray(voice.ttsEngines) ? voice.ttsEngines.filter((v) => typeof v === "string") : [];
         applyVoiceCaps({
           stt: voice.stt !== false,
           tts: voice.tts !== false,
           ttsEngine: typeof voice.ttsEngine === "string" ? voice.ttsEngine
             : typeof voice.engine === "string" ? voice.engine
-            : Array.isArray(voice.ttsEngines) ? voice.ttsEngines.filter((v) => typeof v === "string").join(", ")
+            : ttsEngines.length ? ttsEngines.join(", ")
             : "",
+          ttsEngines,
         });
         applyChaos(chaosList(msg.chaos));
+        if (!state.capsSent) { state.capsSent = true; sendCaps(); }
         const features = msg.features && typeof msg.features === "object" ? msg.features : null;
         if (features && typeof features.model === "boolean") applyModelFlag(features.model);
         // A server that speaks the language protocol echoes `lang`. A mismatch is logged, not
@@ -1362,6 +1370,16 @@
           noteTextStreaming();
         }
         renderStatus();
+        break;
+      }
+      case "speak": {
+        // Browser tts tier (CONTRACTS.md): no server audio for this turn, speak locally. Text
+        // already arrived through agent_text, so this does not retarget currentTurnId.
+        const text = typeof msg.text === "string" ? msg.text : "";
+        const lang = msg.lang === "tr" ? "tr" : "en";
+        const seq = typeof msg.seq === "number" ? msg.seq : 0;
+        if (text && state.browserTts.supported) speakBrowser(String(msg.turnId), seq, text, lang);
+        else if (text) sendJson({ type: "speak_done", turnId: msg.turnId, seq, t: Date.now() }); // no local voice: never hang the turn
         break;
       }
       case "tool": {
@@ -1552,6 +1570,115 @@
     if (list.join(",") !== prev.join(",")) logLine("Chaos on: " + list.join(", ") + " will fail on purpose (from the ?fail= query).");
   }
 
+  // -------------------------------------------------------------- browser tts
+  // Last-resort speech tier (CONTRACTS.md): no vendor engine, no quota, whatever voice the OS
+  // already has. Feature-detected once per socket and reported to the server as `caps`; driven
+  // per sentence by the server's `speak` messages, never opened on our own initiative.
+  const VOICES_WAIT_MS = 300; // Chrome loads voices asynchronously; never block longer than this.
+
+  function getVoicesOnce() {
+    return new Promise((resolve) => {
+      if (!window.speechSynthesis) { resolve([]); return; }
+      let voices;
+      try { voices = speechSynthesis.getVoices(); } catch { resolve([]); return; }
+      if (voices && voices.length) { resolve(voices); return; }
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try { speechSynthesis.removeEventListener("voiceschanged", onChanged); } catch {}
+        let v = [];
+        try { v = speechSynthesis.getVoices() || []; } catch {}
+        resolve(v);
+      };
+      const onChanged = () => finish();
+      try { speechSynthesis.addEventListener("voiceschanged", onChanged); } catch {}
+      setTimeout(finish, VOICES_WAIT_MS);
+    });
+  }
+
+  // Feature-detect and report to the server once per socket. Sent after `ready`, per CONTRACTS.md.
+  async function sendCaps() {
+    const supported = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+    let voiceNames = [];
+    if (supported) {
+      try { voiceNames = (await getVoicesOnce()).map((v) => v.lang + (v.name ? " " + v.name : "")); } catch {}
+    }
+    state.browserTts.supported = supported;
+    sendJson({ type: "caps", browserTts: supported, voices: voiceNames });
+    logLine("Capabilities sent: browserTts=" + supported + (voiceNames.length ? " (" + voiceNames.length + " voice(s))" : ""));
+    if (!supported) {
+      // Only worth a note if there is nothing else that could speak either; a vendor engine
+      // still carries the turn otherwise.
+      const vendorEngines = (state.voice.ttsEngines || []).filter((e) => e !== "browser");
+      if (vendorEngines.length === 0) {
+        els.ttsNote.hidden = false;
+        logLine("This browser has no speech synthesis and the server has no TTS engine: replies are text only.");
+      }
+    }
+  }
+
+  // Prefer a local voice whose lang starts with the requested language; remember the choice so
+  // later sentences in the same language do not re-scan the voice list.
+  function pickVoice(lang) {
+    const cache = state.browserTts.voiceCache;
+    if (Object.prototype.hasOwnProperty.call(cache, lang)) return cache[lang];
+    let voices = [];
+    try { voices = speechSynthesis.getVoices() || []; } catch {}
+    const matches = voices.filter((v) => v && typeof v.lang === "string" && v.lang.toLowerCase().startsWith(lang));
+    const voice = matches.find((v) => v.localService) || matches[0] || null;
+    cache[lang] = voice;
+    return voice;
+  }
+
+  // One sentence on the browser tts tier. speechSynthesis.speak() queues internally and plays
+  // utterances strictly in the order they were queued, so sentences never overlap without any
+  // queue of our own; clearPlayback() (on clear_audio) empties that queue with cancel().
+  function speakBrowser(turnId, seq, text, lang) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang === "tr" ? "tr-TR" : "en-US";
+    const voice = pickVoice(lang);
+    if (voice) u.voice = voice;
+    u.rate = 1.0;
+    u.pitch = 1.0;
+    let doneSent = false;
+    const sendDone = () => {
+      if (doneSent) return;
+      doneSent = true;
+      sendJson({ type: "speak_done", turnId, seq, t: Date.now() });
+      onBrowserSpeakSettled();
+    };
+    u.onstart = () => {
+      sendJson({ type: "speak_start", turnId, seq, t: Date.now() });
+      onBrowserSpeakStart(turnId);
+    };
+    u.onend = sendDone;
+    u.onerror = sendDone; // a failure must not hang the turn either
+    try {
+      speechSynthesis.speak(u);
+    } catch (err) {
+      logLine("speechSynthesis.speak failed: " + ((err && err.message) || err));
+      sendDone();
+    }
+  }
+
+  // Mirrors what onAudioChunk / onPlaybackMessage do for vendor audio: first-audio timing for the
+  // latency table and the "Speaking" status word, from the utterance's own start/end/error events
+  // rather than the playback worklet (there is no worklet on this tier).
+  function onBrowserSpeakStart(turnId) {
+    const t = turnRecord(turnId);
+    if (!t.firstAudioAt) { t.firstAudioAt = now(); renderLatency(); }
+    if (!t.playedAt) { t.playedAt = now(); renderLatency(); } // no separate transport delay to measure here
+    clearTimeout(state.speakingTimer);
+    state.playing = true;
+    renderStatus();
+  }
+
+  function onBrowserSpeakSettled() {
+    clearTimeout(state.speakingTimer);
+    state.speakingTimer = setTimeout(() => { state.playing = false; renderStatus(); }, 250);
+  }
+
   // ------------------------------------------------------------------- audio
   async function ensureAudio() {
     const a = state.audio;
@@ -1633,6 +1760,9 @@
   function clearPlayback() {
     state.pendingAudio = [];
     if (state.audio.playback) state.audio.playback.port.postMessage({ type: "clear" });
+    // Browser tts tier: cancel any speech in progress or queued. This also drops every utterance
+    // still queued for the cancelled turn, since speechSynthesis.cancel() empties the whole queue.
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch {}
     // The buffered audio is gone now; the worklet's own "drained (cleared)" follows and agrees.
     clearTimeout(state.speakingTimer);
     state.playing = false;

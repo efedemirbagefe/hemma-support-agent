@@ -10,6 +10,7 @@
  * `{type:"Flushed", sequence_id}` back. Audio is binary frames of raw 16 kHz Int16 PCM (about
  * 1280 bytes each, no WAV header). The socket stays usable across flushes; `{type:"Close"}`
  * makes the server close with 1000. `{type:"Error", description}` is the API error shape.
+ * Protocol mechanics are the same for every aura-2-* voice; only the model id changes.
  */
 import WebSocket from "ws";
 import type { RawData } from "ws";
@@ -17,7 +18,14 @@ import type { Lang } from "../domain/lang";
 import { lostChunks, MS_PER_CHAR_FLOOR, type TtsEngine, type TtsStream, type TtsStreamEvents } from "./tts";
 import { vendorUrlOverride } from "./vendor-url";
 
-export const DEEPGRAM_TTS_MODEL = "aura-2-thalia-en";
+/**
+ * Default Aura voice: "feminine, calm, smooth, professional" per Deepgram's Aura-2 voice
+ * catalogue, a better fit for a support line than the earlier thalia default. First-audio
+ * latency measured comparable to thalia (three runs, a full sentence: 937 / 956 / 1125 ms).
+ * Overridable per deployment with the DEEPGRAM_TTS_MODEL env var (server.ts); any aura-2-*
+ * model id works, the Speak/Flush/Close protocol above does not change with the voice.
+ */
+export const DEEPGRAM_TTS_MODEL = "aura-2-athena-en";
 
 /**
  * Test hook: DEEPGRAM_SPEAK_WS_URL points the client at a mock server (loopback, or any host with
@@ -202,7 +210,7 @@ export class DeepgramAuraStream implements TtsStream {
 
 export class DeepgramTts implements TtsEngine {
   readonly name = "deepgram" as const;
-  /** aura-2-thalia-en is an English voice; a Turkish turn skips this engine (session-voice.ts). */
+  /** Every aura-2-*-en voice is English only; a Turkish turn skips this engine (session-voice.ts). */
   readonly languages: readonly Lang[] = ["en"];
   constructor(
     private readonly apiKey: string,

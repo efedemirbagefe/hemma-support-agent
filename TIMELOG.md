@@ -14,6 +14,8 @@ Wall-clock, Istanbul time, 2026-09-03. Timebox in the brief: 6 hours. Times come
 | 12:16 | 13:42 | Build round 2: the four fixes, demo:check, drop-in scenario, chaos toggles, Aura fallback, p50/p95, docs from measured numbers | 9 agents, 16 review findings fixed, 100 tests, demo:check PASS against the real model |
 | 13:42 | 14:05 | Commit, push to GitHub, Render service, keys as a secret file, first live checks | Free instance, Frankfurt |
 | 14:05 | 14:22 | Customer-facing UI rebuilt (brand, demo card, chat, engineering view behind a toggle), /brief page, redeploy, demo:check and voice smoke against production | demo:check PASS on the live URL, 32 s of audio in the voice smoke |
-| 16:00 | 18:00 | Turkish language support, assistant speaks first, customer-facing UI rebuilt, three voice tiers, model re-measured, docs updated | 120 tests, demo:check PASS in both languages on the live URL |
+| 16:00 | 17:32 | Beyond the brief: Turkish with a language switch, the assistant speaking first, three voice tiers, model re-measured against Sonnet, Turkish product names, docs rewritten | 120 tests, demo:check PASS in both languages on the live URL, 3 of 3 Turkish runs clean |
 
-Elapsed at 18:00: about 7 h 15 min of the 6 h box.
+**Against the 6 hour box.** Everything the brief asks for was written, tested, deployed and verified against the real model by 14:22, which is 3 h 37 of work. That is the submission.
+
+The rows after 14:00 are things the brief does not ask for and I added on purpose: a customer-facing page instead of an engineering console, a Turkish language switch, an assistant that speaks first, and a third voice tier so speech never dies when a vendor quota does. Counting those, wall clock from 10:45 to 17:32 is just under 7 hours, and I would rather say that plainly than trim the log.

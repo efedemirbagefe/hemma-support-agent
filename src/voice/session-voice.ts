@@ -17,7 +17,7 @@ import { DeepgramTts } from "./deepgram-tts";
 import { ElevenLabsTts } from "./elevenlabs";
 import { SentenceChunker } from "./chunker";
 import { TurnLatency, logLatencyLine, pcmBytesToMs, type LatencyReport, type TurnSource } from "./latency";
-import { FailingTtsStream, type TtsEngine, type TtsEngineName, type TtsStream, type TtsVendor } from "./tts";
+import { FailingTtsStream, type StreamedTtsVendor, type TtsEngine, type TtsEngineName, type TtsStream, type TtsVendor } from "./tts";
 
 export const FILLER_AFTER_MS = 700;
 /** Spoken while the model is still working after a tool call, per language. */
@@ -61,6 +61,12 @@ export const MAX_TTS_STREAMS_PER_ENGINE = 2;
  * the Aura open behind it) before the fallback speaks. Per connection; a reset clears it.
  */
 export const TTS_ENGINE_COOLDOWN_MS = 60_000;
+/**
+ * Last resort per sentence sent to the browser tier: if the client reports neither
+ * speak_start nor speak_done within this long, the sentence is treated as done so a lost or
+ * silent client can never hang a turn. Test hook: VoiceSessionOptions.browserSpeakSilenceMs.
+ */
+export const BROWSER_SPEAK_SILENCE_MS = 10_000;
 
 export interface VoiceSessionOptions {
   /** Deepgram key for STT (the listen socket). */
@@ -69,11 +75,13 @@ export interface VoiceSessionOptions {
   elevenLabsKey?: string;
   /** Deepgram key for the Aura TTS fallback. server.ts passes DEEPGRAM_API_KEY here as well. */
   deepgramTtsKey?: string;
+  /** Aura model id (an aura-2-*-en voice). Defaults to DEEPGRAM_TTS_MODEL (deepgram-tts.ts). */
+  deepgramTtsModel?: string;
   voiceId?: string;
   modelId?: string;
   /** Session language from the /ws URL (`?lang=en|tr`); "en" by default. */
   lang?: Lang;
-  /** Demo chaos toggles from the /ws URL (`?fail=tool,tts,stt`). Off by default. */
+  /** Demo chaos toggles from the /ws URL (`?fail=tool,tts,stt,browsertts`). Off by default. */
   chaos?: ChaosFlag[];
   log?: (msg: string) => void;
   /** Test hook: build the agent from an injected factory instead of the real model. */
@@ -82,6 +90,8 @@ export interface VoiceSessionOptions {
   resumeAfterBargeInMs?: number;
   /** Test hook: override TTS_ENGINE_COOLDOWN_MS. */
   ttsEngineCooldownMs?: number;
+  /** Test hook: override BROWSER_SPEAK_SILENCE_MS. */
+  browserSpeakSilenceMs?: number;
 }
 
 export type ClientMessage =
@@ -89,7 +99,12 @@ export type ClientMessage =
   | { type: "played"; turnId: string; t?: number }
   | { type: "lang"; lang: Lang }
   | { type: "greet" }
-  | { type: "reset" };
+  | { type: "reset" }
+  /** Sent once after `ready`: whether this browser can synthesize speech locally. */
+  | { type: "caps"; browserTts: boolean; voices?: string[] }
+  /** The utterance for one sentence started / finished playing on the browser tts tier. */
+  | { type: "speak_start"; turnId: string; seq: number; t?: number }
+  | { type: "speak_done"; turnId: string; seq: number; t?: number };
 
 export type { SessionSnapshot };
 
@@ -103,6 +118,8 @@ export type ServerMessage =
     }
   | { type: "stt"; text: string; final: boolean }
   | { type: "agent_text"; turnId: string; delta: string }
+  /** Browser tts tier only: speak this sentence locally. No vendor socket is opened for it. */
+  | { type: "speak"; turnId: string; text: string; lang: Lang; seq: number }
   | {
       type: "tool";
       turnId: string;
@@ -143,7 +160,7 @@ interface Turn {
   tools: Map<string, ToolRun>;
   tts?: TtsStream;
   /** Real failures per engine this turn; an engine is skipped at MAX_TTS_STREAMS_PER_ENGINE. */
-  ttsFailures: Record<TtsVendor, number>;
+  ttsFailures: Record<StreamedTtsVendor, number>;
   /** Engine that delivered the turn's first audio frame (what firstAudioMs measures). */
   firstAudioEngine: TtsEngineName;
   /** Every engine that delivered audio this turn, in order of first frame. */
@@ -151,6 +168,18 @@ interface Turn {
   /** Every engine exhausted (or the loss is unrecoverable): TTS is off for the rest of the turn. */
   ttsFailed: boolean;
   ttsBytes: number;
+  /**
+   * This turn committed to the browser tts tier (no vendor stream could speak it): once true it
+   * stays true for the rest of the turn, sentences go out as "speak" messages instead of a
+   * vendor socket, and the turn is not done until every sent seq gets a speak_done or times out.
+   */
+  usingBrowser: boolean;
+  /** Next seq to send on a "speak" message; increments per sentence, scoped to this turn. */
+  browserSeq: number;
+  /** seq -> its BROWSER_SPEAK_SILENCE_MS safety timer, for every sentence sent and not yet acked. */
+  browserPending: Map<number, NodeJS.Timeout>;
+  /** No more sentences are coming from the chunker this turn (the browser-tier equivalent of flush()). */
+  browserFlushed: boolean;
   agentDone: boolean;
   ttsDone: boolean;
   finalized: boolean;
@@ -190,11 +219,18 @@ export class VoiceSession {
   private support?: SupportAgent;
   private agentError?: string;
   private stt?: DeepgramStt;
-  /** TTS engines in preference order (ElevenLabs, then Deepgram Aura). Empty = text only. */
+  /** TTS engines in preference order (ElevenLabs, then Deepgram Aura). Empty = no vendor engine. */
   private readonly engines: TtsEngine[];
   private chaos: ChaosState;
   /** Engines resting after MAX_TTS_STREAMS_PER_ENGINE failures in one turn: name -> wall time the rest ends. */
-  private engineDownUntil: Partial<Record<TtsVendor, number>> = {};
+  private engineDownUntil: Partial<Record<StreamedTtsVendor, number>> = {};
+  /**
+   * Whether this browser can synthesize speech locally, from its one-shot `caps` message.
+   * Assumed true before caps arrives (CONTRACTS.md): a turn that starts before the client has
+   * had a chance to report otherwise still gets a chance at the browser tier rather than
+   * silence. Chaos fail=browsertts overrides this to false regardless (browserOffered()).
+   */
+  private browserTtsAvailable = true;
   private lang: Lang;
   /** The greeting is spoken at most once per session (a reset starts a new session). */
   private greeted = false;
@@ -222,7 +258,7 @@ export class VoiceSession {
     this.chaos = new ChaosState(opts.chaos ?? []);
     const engines: TtsEngine[] = [];
     if (opts.elevenLabsKey) engines.push(new ElevenLabsTts(opts.elevenLabsKey, opts.voiceId));
-    if (opts.deepgramTtsKey) engines.push(new DeepgramTts(opts.deepgramTtsKey));
+    if (opts.deepgramTtsKey) engines.push(new DeepgramTts(opts.deepgramTtsKey, opts.deepgramTtsModel));
     this.engines = engines;
     this.createAgent();
 
@@ -280,10 +316,27 @@ export class VoiceSession {
     return this.engines.filter((e) => e.languages.includes(lang));
   }
 
-  /** What the `ready` event reports for a language: STT is per key, TTS per engine language. */
+  /**
+   * The browser tier is offered when the client has not said otherwise (assumed true before its
+   * one-shot `caps` message) and chaos fail=browsertts has not forced it off. Unlike the vendor
+   * engines it is language neutral: session-voice.ts sends plain text and the client's own OS
+   * picks a voice for it, so there is no per-language filtering to do here.
+   */
+  private browserOffered(): boolean {
+    return this.browserTtsAvailable && !this.chaos.has("browsertts");
+  }
+
+  /** True when some engine (a vendor engine for `lang`, or the browser tier) can speak this turn. */
+  private anyTtsAvailable(lang: Lang): boolean {
+    return this.enginesFor(lang).length > 0 || this.browserOffered();
+  }
+
+  /** What the `ready` event reports for a language: STT is per key, TTS per engine language plus the browser tier. */
   private voiceFeatures(lang: Lang): { stt: boolean; tts: boolean; ttsEngines: TtsVendor[] } {
     const engines = this.enginesFor(lang);
-    return { stt: !!this.opts.deepgramKey, tts: engines.length > 0, ttsEngines: engines.map((e) => e.name) };
+    const ttsEngines: TtsVendor[] = engines.map((e) => e.name);
+    if (this.browserOffered()) ttsEngines.push("browser");
+    return { stt: !!this.opts.deepgramKey, tts: ttsEngines.length > 0, ttsEngines };
   }
 
   /**
@@ -414,6 +467,19 @@ export class VoiceSession {
       case "reset":
         this.reset();
         return;
+      case "caps": {
+        const supported = msg.browserTts === true;
+        this.browserTtsAvailable = supported;
+        const voices = Array.isArray(msg.voices) ? msg.voices.filter((v): v is string => typeof v === "string") : undefined;
+        this.log(`caps: browserTts=${supported}${voices?.length ? ` (${voices.length} voice(s) reported)` : ""}`);
+        return;
+      }
+      case "speak_start":
+        this.onSpeakStart(String(msg.turnId ?? ""), Number(msg.seq), Date.now());
+        return;
+      case "speak_done":
+        this.onSpeakDone(String(msg.turnId ?? ""), Number(msg.seq));
+        return;
       default:
         this.send({ type: "error", message: `Unknown message type: ${String((msg as { type?: unknown })?.type)}` });
     }
@@ -463,7 +529,7 @@ export class VoiceSession {
       } else {
         this.log(`lang ${lang}`);
       }
-      if (this.engines.length > 0 && this.enginesFor(lang).length === 0) {
+      if (this.engines.length > 0 && this.enginesFor(lang).length === 0 && !this.browserOffered()) {
         this.send({
           type: "error",
           message: `No speech engine for ${lang} (${this.engines.map((e) => e.name).join(", ")} configured); answers continue as text.`,
@@ -513,8 +579,12 @@ export class VoiceSession {
       audioEngines: [],
       ttsFailed: false,
       ttsBytes: 0,
+      usingBrowser: false,
+      browserSeq: 0,
+      browserPending: new Map(),
+      browserFlushed: false,
       agentDone: false,
-      ttsDone: this.enginesFor(lang).length === 0,
+      ttsDone: !this.anyTtsAvailable(lang),
       finalized: false,
       logged: false,
       text: "",
@@ -686,7 +756,12 @@ export class VoiceSession {
       this.flushChunker(turn);
       this.send({ type: "state", session: snapshotSession(this.session) });
     }
-    if (turn.tts && !turn.cancelled) {
+    if (turn.usingBrowser && !turn.cancelled) {
+      // Browser-tier equivalent of flush(): no more "speak" messages are coming this turn, so it
+      // is done once every one already sent has a speak_done (or hits its safety timeout).
+      turn.browserFlushed = true;
+      this.maybeBrowserDone(turn);
+    } else if (turn.tts && !turn.cancelled) {
       if (!turn.spoke) {
         // Pre-opened stream that never got text (e.g. model returned nothing): drop it quietly.
         turn.tts.cancel();
@@ -709,13 +784,19 @@ export class VoiceSession {
     if (turn.finalized || !turn.agentDone || !turn.ttsDone) return;
     turn.finalized = true;
     turn.latency.cancelled = turn.cancelled;
-    turn.latency.ttsEngine = turn.ttsBytes > 0 ? turn.firstAudioEngine : "none";
-    turn.latency.ttsEngines = turn.ttsBytes > 0 ? [...turn.audioEngines] : [];
+    // firstAudioEngine is only ever set when real audio (vendor PCM) or a browser speak_start
+    // actually arrived, so it is the one signal that covers both tiers; ttsBytes alone would
+    // miss the browser tier, which produces no PCM bytes on the server.
+    const hadAudio = turn.firstAudioEngine !== "none";
+    turn.latency.ttsEngine = hadAudio ? turn.firstAudioEngine : "none";
+    turn.latency.ttsEngines = hadAudio ? [...turn.audioEngines] : [];
     turn.latency.markEnd();
     const report = turn.latency.report();
     this.send(report);
-    // stdout line: wait briefly for the client's `played` report when audio was sent.
-    if (turn.latency.firstAudioAt === undefined || turn.latency.playedAt !== undefined) {
+    // stdout line: wait briefly for the client's `played` report when audio was sent. The
+    // browser tier never sends `played` (speak_start already stands in for it), so there is
+    // nothing to wait for there.
+    if (turn.usingBrowser || turn.latency.firstAudioAt === undefined || turn.latency.playedAt !== undefined) {
       this.writeLatencyLine(turn);
     } else {
       turn.logTimer = setTimeout(() => this.writeLatencyLine(turn), PLAYED_GRACE_MS);
@@ -767,16 +848,42 @@ export class VoiceSession {
   }
 
   private speak(turn: Turn, text: string): void {
-    if (turn.cancelled || turn.ttsFailed || this.enginesFor(turn.lang).length === 0) return;
+    if (turn.cancelled || turn.ttsFailed) return;
+    if (turn.usingBrowser) {
+      this.speakBrowser(turn, text);
+      return;
+    }
+    if (this.enginesFor(turn.lang).length === 0) {
+      // No vendor engine at all for this language (no keys, or an Aura-only deployment on a
+      // Turkish turn): go straight to the browser tier instead of declaring the turn text only.
+      if (this.browserOffered()) {
+        turn.usingBrowser = true;
+        this.speakBrowser(turn, text);
+      }
+      return;
+    }
     // A stream that stopped being writable without reporting an error is in its close handshake
     // (close frame received, TCP close pending): text written to it would vanish, so retire it
-    // through the failure path first. That may open the replacement or give up for the turn.
+    // through the failure path first. That may open a replacement, fall back to the browser tier
+    // (see onTtsError), or give up for the turn.
     if (turn.tts && !turn.tts.isAlive) this.retireStream(turn, turn.tts);
     if (turn.ttsFailed) return;
+    if (turn.usingBrowser) {
+      // retireStream's failure path already committed this turn to the browser tier for its
+      // lost sentences; this new one follows the same path rather than reopening a vendor stream.
+      this.speakBrowser(turn, text);
+      return;
+    }
     if (!turn.tts) {
       const next = this.openTtsStream(turn);
       if (!next) {
-        // Every engine is resting after repeated failures (or used up): text only for this turn.
+        // Every vendor engine is resting or used up this turn. The browser tier is the last
+        // resort before text only.
+        if (this.browserOffered()) {
+          turn.usingBrowser = true;
+          this.speakBrowser(turn, text);
+          return;
+        }
         turn.ttsFailed = true;
         this.log(`tts unavailable (${turn.id}): ${this.describeEngines(turn.lang)}`);
         this.send({ type: "error", message: `Speech synthesis unavailable (${this.describeEngines(turn.lang)}); the answer continues as text.` });
@@ -787,6 +894,53 @@ export class VoiceSession {
     turn.tts.sendText(text);
     turn.spoke = true;
     this.clearFiller(turn);
+  }
+
+  /**
+   * Browser tts tier: no vendor socket, just a "speak" message per sentence and a wait for the
+   * client's speak_start / speak_done. Never called directly except through speak() above, so
+   * turn.cancelled and turn.usingBrowser are already accounted for by the caller.
+   */
+  private speakBrowser(turn: Turn, text: string): void {
+    const seq = turn.browserSeq++;
+    this.send({ type: "speak", turnId: turn.id, text, lang: turn.lang, seq });
+    turn.spoke = true;
+    this.clearFiller(turn);
+    const ms = this.opts.browserSpeakSilenceMs ?? BROWSER_SPEAK_SILENCE_MS;
+    const timer = setTimeout(() => {
+      turn.browserPending.delete(seq);
+      this.log(`tts browser (${turn.id}): no speak_done for seq ${seq} within ${ms} ms, finalizing anyway`);
+      this.maybeBrowserDone(turn);
+    }, ms);
+    turn.browserPending.set(seq, timer);
+  }
+
+  /** seq seen here only for symmetry with onSpeakDone; firstAudioMs cares about the first one only. */
+  private onSpeakStart(turnId: string, _seq: number, at: number): void {
+    const turn = this.recentTurns.get(turnId);
+    if (!turn) return;
+    turn.latency.markFirstAudio(at);
+    if (turn.firstAudioEngine === "none") turn.firstAudioEngine = "browser";
+    if (!turn.audioEngines.includes("browser")) turn.audioEngines.push("browser");
+  }
+
+  private onSpeakDone(turnId: string, seq: number): void {
+    const turn = this.recentTurns.get(turnId);
+    if (!turn) return;
+    const timer = turn.browserPending.get(seq);
+    if (timer) {
+      clearTimeout(timer);
+      turn.browserPending.delete(seq);
+    }
+    this.maybeBrowserDone(turn);
+  }
+
+  /** TTS is done for a browser-tier turn once nothing is left pending and no more is coming. */
+  private maybeBrowserDone(turn: Turn): void {
+    if (!turn.usingBrowser || turn.ttsDone) return;
+    if (!turn.browserFlushed || turn.browserPending.size > 0) return;
+    turn.ttsDone = true;
+    this.maybeFinalize(turn);
   }
 
   /**
@@ -822,7 +976,7 @@ export class VoiceSession {
    * Rest an engine that used up its streams in one turn. The next turn pre-opens the next engine
    * directly instead of paying this one's connect-and-reject again; pickEngine lifts the rest.
    */
-  private markEngineDown(engine: TtsVendor, turn: Turn, err: Error): void {
+  private markEngineDown(engine: StreamedTtsVendor, turn: Turn, err: Error): void {
     const ms = this.opts.ttsEngineCooldownMs ?? TTS_ENGINE_COOLDOWN_MS;
     this.engineDownUntil[engine] = Date.now() + ms;
     this.log(
@@ -905,7 +1059,8 @@ export class VoiceSession {
     // stream whose audio covered everything lost at most the tail of its last sentence, which
     // cannot be re-sent. The replacement comes from the same engine while it has a stream
     // left, then from the next engine that speaks the turn's language.
-    const next = lost.length > 0 || !stream.flushWasRequested ? this.openTtsStream(turn) : undefined;
+    const worthRetrying = lost.length > 0 || !stream.flushWasRequested;
+    const next = worthRetrying ? this.openTtsStream(turn) : undefined;
     if (next) {
       turn.tts = next;
       for (const t of lost) next.sendText(t);
@@ -913,6 +1068,19 @@ export class VoiceSession {
       const kind = next.engine === stream.engine ? "retry" : "fallback";
       const note = lost.length === 0 && stream.textWasSent ? "; its audio covered every sentence written, at most the tail of the last one is cut" : "";
       this.log(`tts ${kind} (${turn.id}): ${next.engine} stream ${next.id}, re-sent ${lost.length} chunk(s)${note}`);
+      return;
+    }
+    if (worthRetrying && this.browserOffered()) {
+      // Every vendor engine that speaks this language is down or used up: the browser tier
+      // takes over for the rest of the turn, starting with whatever the dead stream lost.
+      turn.usingBrowser = true;
+      for (const t of lost) this.speakBrowser(turn, t);
+      if (stream.flushWasRequested) {
+        turn.browserFlushed = true;
+        this.maybeBrowserDone(turn);
+      }
+      const note = lost.length === 0 && stream.textWasSent ? "; its audio covered every sentence written, at most the tail of the last one is cut" : "";
+      this.log(`tts fallback (${turn.id}): browser, re-sent ${lost.length} chunk(s)${note}`);
       return;
     }
     // Nothing left to try (or nothing recoverable): TTS is off for the rest of this turn. The
@@ -930,7 +1098,7 @@ export class VoiceSession {
    * spoken, the model is already streaming its answer, or the turn ended.
    */
   private armFiller(turn: Turn): void {
-    if (turn.source !== "voice" || this.enginesFor(turn.lang).length === 0) return;
+    if (turn.source !== "voice" || !this.anyTtsAvailable(turn.lang)) return;
     if (turn.fillerSent || turn.spoke || turn.cancelled || turn.fillerTimer || turn.ttsFailed) return;
     const textLenAtArm = turn.text.length;
     turn.fillerTimer = setTimeout(() => {
@@ -954,7 +1122,11 @@ export class VoiceSession {
 
   /** True while the client is (estimated to be) still playing this turn's audio. */
   private isStillPlaying(turn: Turn): boolean {
-    if (turn.cancelled || turn.ttsBytes === 0) return false;
+    if (turn.cancelled) return false;
+    // The browser tier has no byte count to estimate a duration from; ttsDone (flushed and every
+    // sent seq acked or timed out) is the only signal, so "not done" stands in for "still playing".
+    if (turn.usingBrowser) return !turn.ttsDone;
+    if (turn.ttsBytes === 0) return false;
     if (!turn.ttsDone) return true;
     const start = turn.latency.playedAt ?? turn.latency.firstAudioAt;
     if (start === undefined) return false;
@@ -1030,10 +1202,18 @@ export class VoiceSession {
       turn.tts.cancel();
       turn.tts = undefined;
     }
+    this.clearBrowserPending(turn);
     turn.ttsDone = true;
     this.send({ type: "clear_audio" });
     if (!this.support?.isBusy()) turn.agentDone = true;
     this.maybeFinalize(turn);
+  }
+
+  /** Drop every outstanding browser-tier safety timer without acting on it (turn cancelled or session closing). */
+  private clearBrowserPending(turn: Turn): void {
+    if (turn.browserPending.size === 0) return;
+    for (const timer of turn.browserPending.values()) clearTimeout(timer);
+    turn.browserPending.clear();
   }
 
   private reset(): void {
@@ -1081,6 +1261,7 @@ export class VoiceSession {
         t.tts.cancel();
         t.tts = undefined;
       }
+      this.clearBrowserPending(t);
     }
     if (this.support?.isBusy()) this.support.abort();
     const stt = this.stt;
