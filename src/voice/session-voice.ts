@@ -378,6 +378,8 @@ export class VoiceSession {
           if (this.stt !== inst) return;
           this.lastInterimAt = Date.now();
           this.send({ type: "stt", text, final: false });
+          // Words, not just sound, are what cut the assistant off. See onSpeechStarted.
+          if (text.trim().length > 0) this.confirmBargeIn();
         },
         onFinal: (text, meta) => {
           if (this.stt !== inst) return;
@@ -1150,8 +1152,31 @@ export class VoiceSession {
   /** Barge-in switch. On by default; the client can turn it off for a demo. */
   private bargeInEnabled = true;
 
+  /**
+   * Deepgram's speech-started fires on voice activity, which in a cafe, or on a laptop with no
+   * headphones where the assistant hears its own audio, means the answer was being cut off by
+   * noise and echo. Sound alone no longer cancels anything: this arms the barge-in and the first
+   * interim transcript carrying actual words confirms it, a few hundred milliseconds later.
+   * Silence, a cough or an echo never produce words, so the assistant keeps talking.
+   */
+  private bargeInArmed = false;
+
+  private confirmBargeIn(): void {
+    if (!this.bargeInArmed) return;
+    this.bargeInArmed = false;
+    this.cutForBargeIn();
+  }
+
   private onSpeechStarted(): void {
     if (!this.bargeInEnabled) return;
+    const turn = this.turn;
+    const generating = !!this.support?.isBusy();
+    const speaking = !!turn && this.isStillPlaying(turn);
+    if (!generating && !speaking) return;
+    this.bargeInArmed = true;
+  }
+
+  private cutForBargeIn(): void {
     const turn = this.turn;
     const generating = !!this.support?.isBusy();
     const speaking = !!turn && this.isStillPlaying(turn);

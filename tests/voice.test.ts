@@ -432,7 +432,10 @@ test("session: a barge-in with no transcript re-answers the interrupted question
   assert.deepEqual(calls, ["where is my order"]);
   dg.speechStarted(); // cough: VAD fires, nothing transcribed
   await sleep(80);
-  assert.equal(ws.ofType("clear_audio").length, 1, "barge-in cut the audio");
+  assert.equal(ws.ofType("clear_audio").length, 0, "sound alone never cuts: echo and room noise fire VAD too");
+  dg.interim("actually"); // now there are words, so this is a real interruption
+  await sleep(80);
+  assert.equal(ws.ofType("clear_audio").length, 1, "words confirmed the barge-in and cut the audio");
   assert.equal(calls.length, 1);
   await sleep(600); // resume window (200 ms) + second answer
   assert.deepEqual(calls, ["where is my order", "where is my order"], "question answered again");
@@ -1505,6 +1508,7 @@ test("session: a barge-in during the greeting cuts the audio and does not re-ans
   assert.ok(ws.audioBytes > 0);
   assert.equal(ws.ofType("clear_audio").length, 0);
   dg.speechStarted(); // the customer starts talking over the greeting (6 s of mock audio are still playing)
+  dg.interim("hi there"); // words confirm it; sound alone would be the assistant's own echo
   await sleep(300);
   assert.equal(ws.ofType("clear_audio").length, 1, "playback cut");
   assert.deepEqual(calls, [], "nothing is re-answered: a greeting has no question to repeat");

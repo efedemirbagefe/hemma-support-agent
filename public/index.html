@@ -258,7 +258,10 @@
   }
 
   @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; grid-template-areas: "hero" "call" "aside" "hood"; }
+    /* minmax(0, ...) not 1fr: a plain 1fr track has an auto minimum, so the horizontally
+       scrollable chip row sets the column width and the whole page grows past the viewport. */
+    .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "call" "aside" "hood"; }
+    .hero, .call, .demo, .hood { min-width: 0; }
     .hero { padding: 28px 0 18px; }
     .hero h1 { font-size: 36px; }
     .demo { position: static; margin-top: 20px; }
@@ -289,7 +292,8 @@
     .howto ol { gap: 6px; }
     .howto .n { width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
     /* One swipeable row keeps the chips on the first screen of a 390 px phone. */
-    .phrases { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+    .phrases { flex-wrap: nowrap; overflow-x: auto; min-width: 0; padding-bottom: 6px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+    .phrasesWrap { min-width: 0; }
     .phrase { white-space: nowrap; flex: none; scroll-snap-align: start; }
     .micWrap { min-width: 72px; }
     .mic { width: 54px; height: 54px; }
