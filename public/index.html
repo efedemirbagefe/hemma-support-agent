@@ -184,6 +184,9 @@
   .demo li code { color: var(--accent); flex: none; }
   .demo .alt { margin: 0; font-size: 12px; color: var(--muted); }
 
+  .demo .hint { margin: 4px 0 10px; font-size: 12.5px; color: var(--muted); }
+  .demo .ordersTitle { margin: 12px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
   /* Barge-in switch. Off is a demo control: it shows interruption is a deliberate switch on the
      speech-started signal rather than a side effect of the pipeline. */
   .bargeRow { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 13px; color: var(--muted); cursor: pointer; }
@@ -385,10 +388,12 @@
   <aside id="demo" class="demo" aria-labelledby="demoTitle">
     <h2 id="demoTitle" data-i18n="demo.title">Demo customer</h2>
     <div class="name">Anna Weber</div>
+    <p class="hint" data-i18n="demo.hint">Give the assistant any one of these to be identified.</p>
     <div class="ids">
       <span><span data-i18n="demo.customerNo">Customer number</span> <code>HM-2201</code></span>
       <span><span data-i18n="demo.phone">Phone</span> <code>+49 30 1234567</code></span>
     </div>
+    <h3 class="ordersTitle" data-i18n="demo.orders">Her orders</h3>
     <ul>
       <li><code>HM-1042</code><span data-i18n="demo.order1">Linen sofa cover, EUR 89, arriving Tuesday 8 September</span></li>
       <li><code>HM-0977</code><span data-i18n="demo.order2">Arc floor lamp, EUR 240, delivered 28 August</span></li>

@@ -134,7 +134,7 @@ export function createTools(session: Session): AgentTool[] {
   const findCustomerTool: AgentTool<typeof FindCustomerParams> = {
     name: "find_customer",
     label: "Find customer",
-    description: "Identify the customer by phone number or customer reference. Returns the customer and their orders. Call this first.",
+    description: "Identify the customer by phone number, customer reference, order id or full name. Returns the customer and their orders. Call this first.",
     parameters: FindCustomerParams,
     execute: async (_id, params) => {
       maybeFail("find_customer", params);
@@ -143,9 +143,16 @@ export function createTools(session: Session): AgentTool[] {
       }
       const customer = findCustomer(session.store, params);
       if (!customer) {
-        return result({ found: false, message: "No customer matches that phone or reference. Ask them to repeat it." });
+        return result({
+          found: false,
+          message:
+            "Nothing matches that. A customer reference (HM-2201), an order id (HM-1042), a phone number or the full name all work. Ask for one of those.",
+        });
       }
       session.customer = customer;
+      // Identified through an order id: that order is what they are calling about.
+      const viaOrder = params.customerRef ? findOrder(session.store, params.customerRef) : undefined;
+      if (viaOrder && viaOrder.customerId === customer.id) session.activeOrderId = viaOrder.id;
       const orders = ordersForCustomer(session.store, customer.id)
         .slice()
         .sort((a, b) => (a.placedAt < b.placedAt ? 1 : -1))

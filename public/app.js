@@ -100,6 +100,8 @@
       "hood.toggle": "Under the hood",
       "hood.inline": "Under the hood: tool calls, session state and latency, live",
       "barge.label": "Let me interrupt the assistant",
+      "demo.hint": "Give the assistant any one of these to be identified.",
+      "demo.orders": "Her orders",
       "conn.connecting": "connecting",
       "conn.connected": "connected",
       "conn.voiceReady": "voice ready",

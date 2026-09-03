@@ -62,13 +62,32 @@ export function normalizePhone(phone: string): string {
   return withPlus.replace(/\+/g, "");
 }
 
+/** "hm 1042", "HM-1042", "1042" all normalise to "HM-1042". Spoken ids arrive in every shape. */
+export function normalizeRef(raw: string): string {
+  const compact = raw.trim().toUpperCase().replace(/[\s._]+/g, "");
+  const digits = compact.replace(/\D/g, "");
+  if (/^HM-?\d{4}$/.test(compact)) return `HM-${digits}`;
+  if (/^\d{4}$/.test(digits) && digits === compact) return `HM-${digits}`;
+  return compact;
+}
+
 export function findCustomer(store: DataStore, query: { phone?: string; customerRef?: string }): Customer | undefined {
-  const ref = query.customerRef?.trim().toUpperCase();
+  const raw = query.customerRef?.trim();
+  const ref = raw ? normalizeRef(raw) : "";
   if (ref) {
-    const byRef = store.customers.find((c) => c.ref.toUpperCase() === ref);
+    const byRef = store.customers.find((c) => normalizeRef(c.ref) === ref);
     if (byRef) return byRef;
+    // The demo card and every email show order ids, so an order id is what people actually type
+    // or say when asked to identify themselves. Resolve it to its owner instead of refusing.
+    const byOrder = store.orders.find((o) => normalizeRef(o.id) === ref);
+    if (byOrder) return store.customers.find((c) => c.id === byOrder.customerId);
+    const byName = store.customers.find((c) => c.name.toUpperCase() === raw!.toUpperCase());
+    if (byName) return byName;
   }
-  const phone = query.phone ? normalizePhone(query.phone) : "";
+  // A phone number given where a reference was expected: the model mislabels the argument often
+  // enough that refusing it only makes the caller repeat themselves.
+  const refAsPhone = raw && raw.replace(/\D/g, "").length >= 7 ? raw : undefined;
+  const phone = normalizePhone(query.phone ?? refAsPhone ?? "");
   // A national number ("030 1234567") matches the stored international one ("+49 30 1234567").
   const candidates = [phone, phone.replace(/^0+/, "")].filter((p) => p.length >= 6);
   if (candidates.length === 0) return undefined;
@@ -79,8 +98,8 @@ export function findCustomer(store: DataStore, query: { phone?: string; customer
 }
 
 export function findOrder(store: DataStore, orderId: string): Order | undefined {
-  const id = orderId.trim().toUpperCase();
-  return store.orders.find((o) => o.id.toUpperCase() === id);
+  const id = normalizeRef(orderId);
+  return store.orders.find((o) => normalizeRef(o.id) === id);
 }
 
 export function ordersForCustomer(store: DataStore, customerId: string): Order[] {
