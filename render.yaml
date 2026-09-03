@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: KEEPALIVE_URL
+        value: https://hemma-support-agent.onrender.com/healthz
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: DEEPGRAM_API_KEY

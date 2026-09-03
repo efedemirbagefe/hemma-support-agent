@@ -233,8 +233,29 @@ server.on("upgrade", (req, socket, head) => {
   });
 });
 
+/**
+ * Keep-warm ping. The free Render instance sleeps after about 15 minutes without inbound traffic
+ * and the next visitor then waits up to a minute on a cold start, which is a bad first thing to
+ * show anyone. A scheduled GitHub Action was tried first and its runs were delayed by hours, so
+ * the service keeps itself awake instead. Off unless KEEPALIVE_URL is set, so local runs and
+ * tests never do this. One request every 10 minutes; failures are ignored on purpose, a warm-up
+ * ping is not worth a log line or a crash.
+ */
+function startKeepAlive(): void {
+  const url = process.env.KEEPALIVE_URL;
+  if (!url) return;
+  const everyMs = 10 * 60 * 1000;
+  const ping = (): void => {
+    void fetch(url, { method: "GET" }).catch(() => {});
+  };
+  const timer = setInterval(ping, everyMs);
+  timer.unref();
+  log(`keep-warm ping every 10 min to ${url}`);
+}
+
 server.listen(PORT, () => {
   log(`listening on http://localhost:${PORT}  (public: ${PUBLIC_DIR}, ws: /ws, health: /healthz)`);
+  startKeepAlive();
   if (!hasAnthropic) log("ANTHROPIC_API_KEY missing: the agent cannot answer; only STT transcripts and errors will flow");
   if (!voice.deepgramKey) log("DEEPGRAM_API_KEY missing: voice input OFF (text input still works)");
   const resolvedAuraModel = voice.deepgramTtsModel ?? DEEPGRAM_TTS_MODEL;
