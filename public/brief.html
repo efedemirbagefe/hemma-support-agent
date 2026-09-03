@@ -59,7 +59,7 @@
   <div class="grid2">
     <div class="card">
       <h3>The product</h3>
-      <p>Hemma is a fictional Scandinavian home-goods store. A customer opens the page, presses the microphone or types, and asks about an existing order. The assistant looks the order up, follows Hemma's support rules, asks for confirmation before it changes anything, and applies the change exactly once. Anything above the rules goes to a human as a case.</p>
+      <p>Hemma is a fictional Scandinavian home-goods store. A customer opens the page, presses Start a call or types, in English or Turkish, and asks about an existing order. The assistant looks the order up, follows Hemma's support rules, asks for confirmation before it changes anything, and applies the change exactly once. Anything above the rules goes to a human as a case.</p>
     </div>
     <div class="card">
       <h3>The three situations it handles</h3>
@@ -118,13 +118,27 @@
       <h3>Measured, not guessed</h3>
       <p>Haiku 4.5 was chosen after timing three models on the same tool turn. Every turn records four clocks: speech end, first token, first audio byte, first audio played. A scripted check replays the eight-step demo against the real model and fails the build if a tool runs out of order or an action is applied twice.</p>
     </div>
+    <div class="card">
+      <h3>Two languages</h3>
+      <p>English and Turkish, chosen for the reviewer's own market. Speech to text runs nova-3 for English and nova-2 with an explicit Turkish flag, because nova-3 has no Turkish. One ElevenLabs voice speaks both. The prompt, the dates and the confirmation wording are separate strings per language; order ids, money and product names stay the same in either.</p>
+    </div>
+    <div class="card">
+      <h3>The assistant speaks first</h3>
+      <p>A fixed line per language plays before the customer says anything, no model call, written into the conversation history so the model does not greet twice. A silent page after you press Start a call reads as broken, not as waiting its turn.</p>
+    </div>
+    <div class="card">
+      <h3>Three voice tiers</h3>
+      <p>ElevenLabs first, Deepgram's Aura second for English only, the browser's own speech synthesis last. The free ElevenLabs workspace ran out of characters mid-testing, and Aura has no Turkish voice at all, so the assistant needs a tier that needs no vendor key. It sounds plainer than the other two, but the call is never silent.</p>
+    </div>
   </div>
 
   <h2>Try it yourself</h2>
-  <p>Open the <a href="/">live demo</a>, put headphones on, press the microphone (or type). The demo customer is Anna Weber, customer number HM-2201, phone +49 30 1234567.</p>
+  <p>Open the <a href="/">live demo</a>, put headphones on, press Start a call (or type). The demo customer is Anna Weber, customer number HM-2201, phone +49 30 1234567.</p>
   <table>
     <thead><tr><th>#</th><th>Say</th><th>What the assistant does</th></tr></thead>
     <tbody>
+      <tr><td></td><td>Press <code>TR</code> in the header, or open with <code>?lang=tr</code></td><td>Switches language for the rest of the call. The prompt, dates and confirmation wording follow; ids and money stay the same either way.</td></tr>
+      <tr><td></td><td>Nothing, just open the page</td><td>The assistant speaks first: a fixed greeting arrives in about a second, before you say a word.</td></tr>
       <tr><td>1</td><td><span class="say">Hi, this is Anna Weber, my customer number is HM-2201. What's happening with my most recent order?</span></td><td>Looks you up, names the sofa cover order and its date.</td></tr>
       <tr><td>2</td><td>Talk over it: <span class="say">Sorry to interrupt. Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</span></td><td>Stops speaking within half a second, switches to the lamp, checks options, opens a case because the order is EUR 240, tells you the case number.</td></tr>
       <tr><td>3</td><td><span class="say">Thanks. Now back to the sofa cover. Can you move the delivery to Friday?</span></td><td>Fetches slots, offers Friday morning or afternoon.</td></tr>
@@ -139,12 +153,13 @@
   <table>
     <thead><tr><th>What</th><th>Number</th></tr></thead>
     <tbody>
-      <tr><td>Model, one call, Haiku 4.5 / Sonnet 4.5 / Sonnet 4.6</td><td class="num">about 1.0 s / 1.3 s / 1.8 s</td></tr>
-      <tr><td>Voice turn: speech end to first token / first audio / turn done</td><td class="num">0.9 s / 1.4 s / 1.8 s (best), 2.5 s / 2.7 s / 3.3 s (cold first turn)</td></tr>
-      <tr><td>Interruption: customer starts speaking to audio stopped</td><td class="num">0.37 s</td></tr>
-      <tr><td>Scripted demo check, six text turns with synthesis, first token p50 / p95</td><td class="num">2.3 s / 2.9 s</td></tr>
-      <tr><td>Tests</td><td class="num">100, two need live keys</td></tr>
-      <tr><td>Time spent</td><td class="num">3 h 10 min of the 6 h box, log in TIMELOG.md</td></tr>
+      <tr><td>Tests</td><td class="num">120, 118 pass, 2 need live keys</td></tr>
+      <tr><td>Model, full eight-step demo, first token p50, Haiku vs Sonnet 4.5</td><td class="num">662 to 2251 ms vs 4179 ms EN / 2775 ms TR (Sonnet 4.5 failed 3 of 4 runs)</td></tr>
+      <tr><td>Demo check on the live deployment, English, 7 text turns, first token p50 / p95</td><td class="num">2251 / 3398 ms</td></tr>
+      <tr><td>Demo check on the live deployment, Turkish, 8 text turns, first token p50 / p95</td><td class="num">664 / 1034 ms</td></tr>
+      <tr><td>Voice smoke (English): speech end to first token / first audio / turn total</td><td class="num">882 / 1399 / 1719 ms</td></tr>
+      <tr><td>Barge-in: clear_audio after the interrupting speech starts</td><td class="num">476 ms</td></tr>
+      <tr><td>Time spent</td><td class="num">7 h 15 min of the 6 h box, log in TIMELOG.md</td></tr>
     </tbody>
   </table>
 
@@ -152,8 +167,9 @@
   <ul>
     <li>State is in memory per connection. Reload the page and the ledger is gone. A real deployment would put proposals and the ledger in Postgres with the same keys.</li>
     <li>The yes detector is a word list with negation handling, not a model. It is deliberately dumb so it can be tested; the next step is a small classifier tool with the same interface.</li>
-    <li>Haiku sometimes asks one clarifying question the prompt tells it not to ask. The guard makes this a wording problem, never a safety one.</li>
-    <li>Browser channel, no telephony, no authentication, one voice, English only. The free ElevenLabs tier cannot use library voices through the API, so the fallback engine is real insurance, not decoration.</li>
+    <li>Haiku can still ask one clarifying question in Turkish instead of acting; a tool-result hint fixed this failure mode for English. The guard makes it a wording problem, never a safety one.</li>
+    <li>Turkish speech recognition struggles with an English name or a spoken digit inside a Turkish sentence: a synthesized test had "Anna Weber" come back as "Nana Eber" and a customer number come back as words.</li>
+    <li>Browser channel, no telephony, no authentication, one ElevenLabs voice for both languages. The free ElevenLabs tier cannot use library voices through the API, so the fallback chain is real insurance, not decoration; its last tier, the browser's own speech synthesis, sounds plainer and its quality depends on which voices the operating system has installed.</li>
     <li>The hosted demo runs on a free instance that sleeps after 15 minutes; the first request after that takes up to a minute.</li>
   </ul>
 

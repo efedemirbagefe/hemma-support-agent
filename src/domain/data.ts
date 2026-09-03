@@ -17,7 +17,7 @@ const ORDERS: Order[] = [
     status: "processing",
     placedAt: "2026-09-01",
     promisedDeliveryDate: "2026-09-08",
-    items: [{ sku: "SOFA-LIN-GRY", name: "Linen sofa cover, grey", qty: 1, unitPriceEur: 89, replacementStock: 12 }],
+    items: [{ sku: "SOFA-LIN-GRY", name: "Linen sofa cover, grey", nameTr: "Keten kanepe kılıfı, gri", qty: 1, unitPriceEur: 89, replacementStock: 12 }],
     totalEur: 89,
   },
   {
@@ -27,7 +27,7 @@ const ORDERS: Order[] = [
     placedAt: "2026-08-21",
     promisedDeliveryDate: "2026-08-28",
     deliveredAt: "2026-08-28",
-    items: [{ sku: "LAMP-ARC-BRS", name: "Arc floor lamp, brass", qty: 1, unitPriceEur: 240, replacementStock: 3 }],
+    items: [{ sku: "LAMP-ARC-BRS", name: "Arc floor lamp, brass", nameTr: "Pirinç yay ayaklı lambader", qty: 1, unitPriceEur: 240, replacementStock: 3 }],
     totalEur: 240,
   },
   {
@@ -36,7 +36,7 @@ const ORDERS: Order[] = [
     status: "shipped",
     placedAt: "2026-08-24",
     promisedDeliveryDate: "2026-08-30",
-    items: [{ sku: "TBL-OAK-SIDE", name: "Oak side table", qty: 1, unitPriceEur: 120, replacementStock: 0 }],
+    items: [{ sku: "TBL-OAK-SIDE", name: "Oak side table", nameTr: "Meşe yan sehpa", qty: 1, unitPriceEur: 120, replacementStock: 0 }],
     totalEur: 120,
   },
   {
@@ -46,7 +46,7 @@ const ORDERS: Order[] = [
     placedAt: "2026-08-18",
     promisedDeliveryDate: "2026-08-25",
     deliveredAt: "2026-08-25",
-    items: [{ sku: "VASE-CER-SET", name: "Ceramic vase set", qty: 1, unitPriceEur: 45, replacementStock: 0 }],
+    items: [{ sku: "VASE-CER-SET", name: "Ceramic vase set", nameTr: "Seramik vazo seti", qty: 1, unitPriceEur: 45, replacementStock: 0 }],
     totalEur: 45,
   },
 ];

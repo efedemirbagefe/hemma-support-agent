@@ -5,22 +5,22 @@ One scripted call with Anna Weber, then chaos toggles, a scenario added live, th
 ## 30 minutes before
 
 - `.env`: `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `MODEL_ID=claude-haiku-4-5`, `ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL`. Rachel returns 402 on a free workspace, and every turn would silently run on Aura.
-- `npm run typecheck` clean, `npm test` green: 100 tests, 98 pass, 2 skipped (the live-model tests, `LIVE=1`).
+- `npm run typecheck` clean, `npm test` green: 120 tests, 118 pass, 2 skipped (the live-model tests, `LIVE=1`).
 - `npm start`. The log must say `voice ON (deepgram nova-3, elevenlabs flash v2.5)`, `tts: elevenlabs flash v2.5 primary, deepgram aura-2-thalia-en fallback` and `model override: claude-haiku-4-5`.
 - `npm run demo:check`. Expect `result: PASS (0 failed, 0 warned, 1 skipped)`; the integration run took 24 s. A FAIL gets fixed first. Optional on macOS: `npx tsx scratch/voice-smoke.ts 3000`, expect `clearAudio: 1`.
 - The clock is pinned to 2026-09-03 in `src/domain/clock.ts`, today's real date. No `NOW` override.
-- Open `http://localhost:3000`, Start mic, say "test", see interim text, Stop. Headphones on, or the agent hears itself and barges in on itself.
+- Open `http://localhost:3000`, press Start a call, allow the mic: greeting in about a second, mic goes live. Say "test", see interim text, Stop. Headphones on, or the agent hears itself.
 - Editor tabs: `policies/damaged.ts`, `guards.ts`, `tests/domain.test.ts`, `examples/scenarios/README.md`. Reload right before the call: every connection is a fresh Session with an empty ledger.
 
 ## Screen layout
 
-Browser left, two thirds. Status pills: connection, a red chaos badge when `?fail=` is on, mic, agent idle or speaking. Transcript left; right, stacked: tool calls, latency table (one row per turn with its TTS engine, a p50 / p95 row), session state (chips for customer, active order, pending, applied, cases; a green receipt block per ledger entry; the raw snapshot). Terminal right: server log on stderr, one JSON latency line per turn on stdout. Editor behind.
+Browser left, two thirds. First screen: one button, Start a call, tappable sample phrases, a demo customer card, EN / TR in the header. Start a call opens the conversation: status word (Listening, Thinking, Speaking), transcript, mic. Tool calls, latency table and session state sit behind "Under the hood", closed by default; open it before the call starts so the audience sees them live. Terminal right: server log on stderr, one JSON latency line per turn on stdout. Editor behind.
 
 ## The call
 
 Anna Weber, VIP, ref HM-2201, phone +49 30 1234567. HM-1042: linen sofa cover, EUR 89, processing, promised Tuesday 8 September. HM-0977: arc floor lamp, EUR 240, delivered Friday 28 August. Slots for HM-1042: Friday 4 to Thursday 10 September without Sunday 6, windows 09-13 and 13-18.
 
-Wording varies; tool order, state panel and ledger do not. Text latency is demo:check (no STT leg, totals include synthesis), voice latency is the smoke. demo:check numbers the last steps as proposal 6, yes 7, retry 8.
+Wording varies; tool order, state panel and ledger do not. Text latency is demo:check (no STT leg, totals include synthesis), voice latency is the smoke. demo:check numbers the last steps as proposal 6, yes 7, retry 8. If the model asks one extra clarifying question, just answer it: the guard still holds, nothing applies without a yes.
 
 ### 1. Most recent order
 
@@ -92,6 +92,25 @@ Latency: text 2596 first token, 3549 total.
 Drift: no tool call. Correct but weaker; "Please book it again." brings the blocked row.
 
 Six text turns: first token p50 2320 ms, p95 2901; total p50 3549, p95 6312.
+
+## Demo in Turkish
+
+Same script, same rules, different words. Switch to TR before Start a call: header button, or `?lang=tr` on the URL.
+
+| # | Say |
+|---|---|
+| 1 | Merhaba, ben Anna Weber, müşteri numaram HM-2201. En son siparişim ne durumda? |
+| 3 | Aslında önce başka bir şey var. Daha önceki bir siparişimden gelen lamba hasarlı geldi, tabanı ezilmiş. |
+| 5 | Teşekkürler. Şimdi kanepe kılıfına dönelim. Teslimatı Cuma gününe alabilir misiniz? |
+| 6 | Cuma sabah saati lütfen. |
+| 7 | Evet, devam edin. |
+| 8 | Pardon, işlem gerçekleşti mi? Garanti olsun diye Cuma sabahını tekrar ayarlayın. |
+
+Steps 2 and 4: interrupt in your own words, and "Evet, lütfen." if asked before the case opens. Full set: `DEMO_LINES.tr` in `src/agent/demo-script.ts`.
+
+Tool order, state, escalation and the guard match the English walkthrough: "Cuma" for Friday, receipt and case ids unchanged.
+
+Turkish speech never touches Aura, it has no Turkish voice: ElevenLabs or, failing that, the browser's own speech synthesis (DECISIONS.md). `?fail=tts` on Turkish skips straight past Aura.
 
 ## Chaos
 

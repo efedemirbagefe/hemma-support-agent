@@ -7,6 +7,13 @@ export type DeliveryWindow = "09-13" | "13-18";
 export interface Item {
   sku: string;
   name: string;
+  /**
+   * Turkish product name. The catalogue is English, but a Turkish caller says "lamba", not
+   * "Arc floor lamp", and the model has to match the description to a known order without
+   * asking. Measured: without this, the Turkish run asked which order and then skipped the
+   * case. Used by the prompt's state block and by get_order.
+   */
+  nameTr?: string;
   qty: number;
   unitPriceEur: number;
   replacementStock: number;

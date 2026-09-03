@@ -22,7 +22,15 @@ Latency you do not notice: first audio well under two seconds after the customer
 
 ## What I left out
 
-From the brief's out-of-scope list: [fill in from the brief before sending]. My own cuts: no persistence (a session lives in memory and dies with the connection), no identity check beyond customer reference or phone, no payment or logistics integration (apply writes a ledger entry and returns a receipt), no telephony (browser microphone only; a SIP leg would replace the client, not the pipeline), one language, one voice. Each is real work, and each would have taken hours from the parts that decide whether the agent can be trusted: the guard, the ledger and the tests.
+From the brief's out-of-scope list: [fill in from the brief before sending]. My own cuts: no persistence (a session lives in memory and dies with the connection), no identity check beyond customer reference or phone, no payment or logistics integration (apply writes a ledger entry and returns a receipt), no telephony (browser microphone only; a SIP leg would replace the client, not the pipeline), one voice. Each is real work, and each would have taken hours from the parts that decide whether the agent can be trusted: the guard, the ledger and the tests.
+
+## What I added
+
+Turkish earned its place inside the six hour box for two reasons. The reviewer is hiring for a Turkish company, and a demo that only speaks English answers half the brief. A second language is also the cheapest way to prove the rules live in code and not in English sentences a model happens to phrase well: the EUR 200 threshold, the two-phase apply, the ledger key do not move when the words around them do. If they had been prompt text instead of playbook functions, Turkish would have meant rewriting the rules, not translating them.
+
+The first screen changed from a mic button to one action, Start a call. A blank page with a microphone icon asks the customer to already know what to do, and a demo especially cannot assume that. One button, a spoken greeting, and phrases you can tap instead of speaking mean the call starts itself, and a reviewer who never says a word out loud can still watch the whole thing work. The engineering panels, tool calls, latency, session state, moved behind an "Under the hood" toggle for the same reason: a customer does not want to see them, a reviewer wants them one click away, not on by default.
+
+The ElevenLabs quota ran out mid-testing, not in a spec sheet: the free workspace's 10,000 characters were gone partway through a run, and Deepgram's Aura fallback has no Turkish voice at all. Together that meant the demo could go silent mid-call, on the one day it matters most. The fix was a third tier, the browser's own speech synthesis, which needs no vendor key and no quota. It sounds worse than either vendor voice, but never being silent matters more than sounding good on the day the reviewer is listening.
 
 ## Where the six hours went
 

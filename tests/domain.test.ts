@@ -1278,12 +1278,12 @@ describe("language", () => {
       assert.equal(isAffirmative(u), false, `expected NOT affirmative: ${u}`);
     }
   });
-  test("tool results carry Turkish labels in a Turkish session; money, ids and product names stay", async () => {
+  test("tool results carry Turkish labels and Turkish product names in a Turkish session; money and ids stay", async () => {
     const { session, call } = harness(new Session({ lang: "tr" }));
     const found = await call("find_customer", { customerRef: "HM-2201" });
     assert.equal(found.orders[0].promisedDeliveryDateLabel, "Salı 8 Eylül 2026");
     assert.equal(found.orders[1].deliveredAtLabel, "Cuma 28 Ağustos 2026");
-    assert.deepEqual(found.orders[1].items, ["Arc floor lamp, brass"], "product names stay as in the data");
+    assert.deepEqual(found.orders[1].items, ["Pirinç yay ayaklı lambader"], "a Turkish caller says lamba, so the Turkish name is what the model matches against");
     assert.equal(found.orders[0].totalEur, 89);
 
     const order = await call("get_order", { orderId: "HM-1042" });
@@ -1394,7 +1394,7 @@ describe("language", () => {
     await call("find_customer", { customerRef: "HM-2201" });
     const block = buildStateBlock(session);
     assert.match(block, /^Müşteri: Anna Weber \(müşteri no HM-2201, VIP, telefon \+49 30 1234567\)$/m);
-    assert.match(block, /Bilinen siparişler \(en yeni önce\): HM-1042 \(Linen sofa cover, grey\) hazırlanıyor, söz verilen teslimat Salı 8 Eylül 2026, EUR 89; HM-0977 \(Arc floor lamp, brass\) teslim edildi Cuma 28 Ağustos 2026, EUR 240/);
+    assert.match(block, /Bilinen siparişler \(en yeni önce\): HM-1042 \(Keten kanepe kılıfı, gri\) hazırlanıyor, söz verilen teslimat Salı 8 Eylül 2026, EUR 89; HM-0977 \(Pirinç yay ayaklı lambader\) teslim edildi Cuma 28 Ağustos 2026, EUR 240/);
     assert.doesNotMatch(block, /2026-09-08/, "no bare ISO dates");
     await call("apply_resolution", { orderId: "HM-1042", type: "reschedule", params: { date: "2026-09-04", window: "09-13" }, customerConfirmed: false });
     assert.match(buildStateBlock(session), /Bekleyen işlem \(açık bir evet bekliyor\): HM-1042 numaralı siparişin teslimatını Cuma 4 Eylül 2026 tarihine, sabah 9 ile 1 arasına alalım\./);

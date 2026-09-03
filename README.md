@@ -1,6 +1,6 @@
 # Hemma support agent
 
-A voice support agent for a fictional EU home-goods store. Browser microphone in, Deepgram nova-3 for speech to text, Claude through the Pi agent harness with six tools, ElevenLabs flash v2.5 for speech out with Deepgram Aura as the fallback engine. The store's rules (reschedule, damaged item, late delivery) are code, and a deterministic guard makes sure nothing is applied without an explicit yes and nothing is applied twice.
+A voice support agent for a fictional EU home-goods store. Browser microphone in, Deepgram for speech to text (nova-3 for English, nova-2 for Turkish), Claude through the Pi agent harness with six tools, ElevenLabs flash v2.5 for speech out with Deepgram Aura and the browser's own speech synthesis as fallbacks. English and Turkish, switched from the header. The store's rules (reschedule, damaged item, late delivery) are code, and a deterministic guard makes sure nothing is applied without an explicit yes and nothing is applied twice.
 
 ## Setup
 
@@ -19,8 +19,10 @@ Keys in `.env`:
 | Variable | Where it comes from | Without it |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | console.anthropic.com, API keys | no agent answers; a text turn shows a "Model error" toast |
-| `DEEPGRAM_API_KEY` | console.deepgram.com, API keys | mic button disabled, text input still works, no Aura fallback |
-| `ELEVENLABS_API_KEY` | elevenlabs.io, profile, API keys | audio comes from Deepgram Aura; with no Deepgram key either, text only |
+| `DEEPGRAM_API_KEY` | console.deepgram.com, API keys | mic button disabled (no speech to text), text input still works; no Aura fallback for speech out |
+| `ELEVENLABS_API_KEY` | elevenlabs.io, profile, API keys | speech out falls to Deepgram Aura (English only), then the browser's own speech synthesis |
+
+Speech out tries three tiers in order: ElevenLabs, then Deepgram Aura for English, then the browser's own speech synthesis. The last tier needs no vendor key, so the assistant is still heard with neither TTS key set; only `DEEPGRAM_API_KEY` decides whether the mic button works for speech in.
 
 Other variables, all optional:
 
@@ -32,13 +34,19 @@ Other variables, all optional:
 - `ALLOWED_ORIGINS`: comma separated browser origins allowed on `/ws` when the page is served from another host. By default the Origin host must equal the request Host; non-browser clients without Origin are accepted.
 - `DEEPGRAM_WS_URL`, `DEEPGRAM_SPEAK_WS_URL`, `ELEVENLABS_WS_URL`: test hooks that point the vendor sockets at a mock server. Honoured for a loopback host only, or any host with `ALLOW_VENDOR_URL_OVERRIDE=1`, because the API key travels to that host.
 
+## Language
+
+English and Turkish, `?lang=en` or `?lang=tr` on the page URL, or the EN / TR buttons in the header. Order of preference: the URL query wins, then the last choice saved in the browser (`localStorage`), then the browser's own language, English unless it starts with `tr`. Switching mid-call sends `{type:"lang"}` over the WebSocket; the prompt, the tool labels, the dates and the confirmation wording all follow at once. Money, order ids and product names stay the same in both languages.
+
+The assistant speaks first: a fixed greeting per language plays as soon as the call starts, before the customer says a word.
+
 ## npm scripts
 
 | Script | What it does |
 |---|---|
 | `npm start` | runs the server once (`tsx src/server.ts`) |
 | `npm run dev` | same, restarts on source changes |
-| `npm test` | `tsx --test tests/*.test.ts`. As of 2026-09-03: 100 tests, 98 pass, 2 skipped |
+| `npm test` | `tsx --test tests/*.test.ts`. As of 2026-09-03: 120 tests, 118 pass, 2 skipped |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run demo:check` | replays the 8-step demo call over `/ws` against a running server and grades it |
 
@@ -51,9 +59,10 @@ npm run demo:check                      # ws://127.0.0.1:3000/ws
 npm run demo:check -- --port 3141
 npm run demo:check -- --url https://hemma.example.com     # becomes wss://hemma.example.com/ws
 npm run demo:check -- --url wss://host/ws --timeout 120000 --json --quiet
+npm run demo:check -- --lang tr                            # connects with ?lang=tr, Turkish demo lines
 ```
 
-`--port N` picks the local port (default 3000; a bare number works too). `--url` takes `ws://`, `wss://`, `http://` or `https://`; http becomes ws and `/ws` is added when the path is empty. `--timeout` is per turn in ms (default 90000). `--json` prints the full report as JSON after the table, `--quiet` hides the per-turn transcript. Exit code 0 on PASS, 1 on any FAIL.
+`--port N` picks the local port (default 3000; a bare number works too). `--url` takes `ws://`, `wss://`, `http://` or `https://`; http becomes ws and `/ws` is added when the path is empty. `--timeout` is per turn in ms (default 90000). `--json` prints the full report as JSON after the table, `--quiet` hides the per-turn transcript. Exit code 0 on PASS, 1 on any FAIL. `--lang tr` connects with `?lang=tr` and sends the Turkish demo lines (`DEMO_LINES.tr` in `src/agent/demo-script.ts`); the same tool order and guard outcomes are expected, and the weekday and next-step text checks accept either language.
 
 The steps are the brief's order: 1 most recent order, 2 barge-in (voice only, reported SKIP), 3 damaged lamp HM-0977, 4 escalation (EUR 240 is over the 200 limit), 5 back to HM-1042 and Friday, 6 the Friday morning proposal (NEEDS_CONFIRMATION), 7 "Yes, go ahead." (APPLIED once), 8 a retry that must hit ALREADY_APPLIED with the same receipt. Where the brief allows it, one clarifying turn per step is tolerated and reported WARN, never PASS. Every turn is linted: a weekday that contradicts the calendar, a dash in spoken text, an error event, or the filler in a text turn. The script reads `/healthz` for the model id and prints a first token / total p50 and p95 over the text turns. The steps and evaluators live in `src/agent/demo-script.ts`; `tests/live.test.ts` runs the same script in-process against the real model.
 
@@ -69,7 +78,7 @@ The steps are the brief's order: 1 most recent order, 2 barge-in (voice only, re
 Add `?fail=tool,tts,stt` (any subset, comma separated) to the page URL and reload; the page forwards it to the `/ws` handshake. The `ready` message echoes what is active and the page shows a red badge. The toggles are read only from that URL, never from env, so ordinary traffic runs with chaos off. `Reset session` re-arms them.
 
 - `tool`: the first `check_resolution_options` of the session throws `Simulated failure in check_resolution_options`; the second works. The tool row shows the error, a toast shows the same text, the model reads `Tool check_resolution_options failed: ...` and the turn continues (the prompt asks it to apologise and offer to escalate).
-- `tts`: every ElevenLabs stream fails without opening a socket, so the turn runs the retry, then the Aura fallback; the latency row says `ttsEngine: "deepgram"`. Two failures in one turn also rest ElevenLabs for 60 s, as a real outage would.
+- `tts`: every ElevenLabs stream fails without opening a socket, so the turn moves down the fallback chain: the Aura retry on English, or straight to the browser's own speech synthesis on Turkish, since Aura has no Turkish voice. On English the latency row says `ttsEngine: "deepgram"`; either way, speech still happens. Two failures in one turn also rest ElevenLabs for 60 s, as a real outage would.
 - `stt`: the Deepgram socket is closed once right after the first final and reopens on the next audio frame after 500 ms.
 
 ## Text-only mode
@@ -87,6 +96,7 @@ A scenario is a playbook: data plus pure functions, no model involved. It says w
 ## Layout
 
 ```
+src/domain/lang.ts             Lang ("en" | "tr"), LANGS, DEFAULT_LANG, isLang, parseLang
 src/domain/clock.ts            today() pinned to 2026-09-03, NOW override, humanDate labels
 src/domain/types.ts            domain types, Playbook interface
 src/domain/data.ts             two customers, four orders, per-session deep copy

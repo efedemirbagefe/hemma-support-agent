@@ -115,7 +115,7 @@ function orderSummary(order: Order, lang: Lang) {
   return {
     id: order.id,
     status: order.status,
-    items: order.items.map((i) => i.name),
+    items: order.items.map((i) => (lang === "tr" && i.nameTr ? i.nameTr : i.name)),
     totalEur: order.totalEur,
     placedAt: order.placedAt,
     promisedDeliveryDate: order.promisedDeliveryDate,

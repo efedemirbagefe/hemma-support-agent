@@ -60,7 +60,7 @@ const STATUS_TR: Record<OrderStatus, string> = {
 };
 
 function orderLine(o: Order, lang: Lang): string {
-  const items = o.items.map((i) => i.name).join(", ");
+  const items = o.items.map((i) => (lang === "tr" && i.nameTr ? i.nameTr : i.name)).join(", ");
   const window = o.deliveryWindow ? ` ${o.deliveryWindow}` : "";
   if (lang === "tr") {
     const when =
