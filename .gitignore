@@ -1,0 +1,10 @@
+node_modules
+.env
+dist
+*.log
+recordings
+scratch/*.wav
+scratch/*.aiff
+scratch/*.pcm
+scratch/*.txt
+scratch/*.mjs

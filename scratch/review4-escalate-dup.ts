@@ -1,0 +1,11 @@
+import { Session } from "../src/domain/session";
+import { createTools } from "../src/domain/tools";
+import { makeBeforeToolCall } from "../src/domain/guards";
+const session = new Session();
+const tools = createTools(session);
+const before = makeBeforeToolCall(session);
+const call = async (name: string, args: any) => JSON.parse((await tools.find((t) => t.name === name)!.execute("x", args, undefined as any, () => {})).content[0].text as string);
+const a = await call("escalate_case", { orderId: "NV-0977", reason: "Damaged item over EUR 200" });
+const g = await before({ toolCall: { type: "toolCall", id: "1", name: "escalate_case", arguments: {} }, args: { orderId: "nv-0977", reason: "damaged floor lamp, order total above 200 EUR" }, context: { systemPrompt: "", messages: [] }, assistantMessage: {} as any });
+const b = await call("escalate_case", { orderId: "nv-0977", reason: "damaged floor lamp, order total above 200 EUR" });
+console.log(a.status, a.caseId, "| guard on reworded reason:", g, "|", b.status, b.caseId, "| cases:", session.cases.length);

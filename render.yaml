@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: hemma-support-agent
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      # Same choices as .env.example, measured 2026-09-03 (scratch/latency-models.md,
+      # scratch/vendor-checks.md): Haiku for the voice path, Sarah as the ElevenLabs voice.
+      - key: MODEL_ID
+        value: claude-haiku-4-5
+      - key: ELEVENLABS_VOICE_ID
+        value: EXAVITQu4vr4xnSDxMaL

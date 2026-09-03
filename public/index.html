@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hemma support demo</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --line: #d9dde3;
+    --text: #1d2229;
+    --muted: #6b7280;
+    --user: #e8f0fe;
+    --agent: #f1f5ef;
+    --sys: #f7f3e8;
+    --ok: #1a7f37;
+    --warn: #b45309;
+    --bad: #b91c1c;
+    --info: #1d4ed8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b;
+      --panel: #1d2126;
+      --line: #313740;
+      --text: #e6e8eb;
+      --muted: #9aa3ad;
+      --user: #1f2b44;
+      --agent: #1f2c22;
+      --sys: #2b2820;
+      --ok: #3fb950;
+      --warn: #e3a33a;
+      --bad: #f06d6d;
+      --info: #6ea2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input { font: inherit; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+
+  .top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .brand { font-size: 17px; }
+  .brand span { color: var(--muted); font-size: 14px; margin-left: 6px; }
+  .status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; font-size: 13px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); white-space: nowrap; }
+  .pill.ok { border-color: var(--ok); color: var(--ok); }
+  .pill.warn { border-color: var(--warn); color: var(--warn); }
+  .pill.bad { border-color: var(--bad); color: var(--bad); }
+  .pill.info { border-color: var(--info); color: var(--info); }
+  .pill.chaos { border-color: var(--bad); background: var(--bad); color: #fff; font-weight: 600; }
+  .muted { color: var(--muted); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; }
+  .controls button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  .controls button:disabled { opacity: .5; cursor: default; }
+  .controls button.primary { background: var(--info); border-color: var(--info); color: #fff; }
+  .meter { width: 90px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .meter div { height: 100%; width: 0; background: var(--ok); transition: width 80ms linear; }
+  form.text { display: flex; gap: 6px; flex: 1 1 280px; min-width: 0; }
+  form.text input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+
+  details.demo { margin: 0 16px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 14px; }
+  details.demo summary { padding: 8px 12px; cursor: pointer; color: var(--muted); }
+  details.demo ol { margin: 0; padding: 4px 12px 12px 32px; }
+  details.demo li { margin: 4px 0; }
+  details.demo li b { font-weight: 600; }
+  details.demo li q { font-style: italic; }
+  details.demo li small { color: var(--muted); display: block; }
+  details.demo li.sub { list-style: none; margin-left: -18px; }
+  details.demo li.sub b::before { content: "8b. "; }
+  details.demo p { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: 13px; }
+
+  .grid { display: grid; gap: 12px; padding: 0 16px 16px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-areas: "transcript tools" "transcript latency" "transcript state"; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .panel.transcript { grid-area: transcript; }
+  .panel.tools { grid-area: tools; }
+  .panel.latency { grid-area: latency; }
+  .panel.state { grid-area: state; }
+  .scroll { overflow: auto; }
+  .transcript .scroll { max-height: 72vh; }
+  .tools .scroll, .latency .scroll { max-height: 26vh; }
+  .state .scroll { max-height: 30vh; }
+
+  .line { padding: 6px 10px; border-radius: 6px; margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+  .line.user { background: var(--user); }
+  .line.agent { background: var(--agent); }
+  .line.sys { background: var(--sys); color: var(--muted); font-size: 13px; }
+  .line.err { background: var(--sys); color: var(--bad); font-size: 13px; }
+  .line.interim { opacity: .65; font-style: italic; }
+  .line.interrupted { text-decoration: line-through; text-decoration-color: var(--muted); }
+  .line .who { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: block; }
+  .chip { display: inline-block; font: 11px/1.4 var(--mono); padding: 0 6px; margin: 2px 4px 0 0; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+  .chip.blocked { color: var(--warn); border-color: var(--warn); }
+  .chip.error { color: var(--bad); border-color: var(--bad); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  td.num { text-align: right; font-family: var(--mono); }
+  td.mono { font-family: var(--mono); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  td.wrap { white-space: normal; }
+  .ph { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
+  .ph.start { color: var(--info); border-color: var(--info); }
+  .ph.end { color: var(--ok); border-color: var(--ok); }
+  .ph.blocked { color: var(--warn); border-color: var(--warn); }
+  .ph.error { color: var(--bad); border-color: var(--bad); }
+  .est { color: var(--muted); }
+  tr.cut td { color: var(--muted); }
+  tfoot td { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; }
+  tfoot td.label { color: var(--muted); font-weight: 500; }
+
+  pre { margin: 0; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .summary span { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); }
+  .receipts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .receipt { border: 1px solid var(--ok); border-left-width: 5px; border-radius: 6px; padding: 6px 10px; background: var(--agent); }
+  .receipt .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); }
+  .receipt .id { font: 600 16px/1.3 var(--mono); color: var(--ok); word-break: break-all; }
+  .receipt .what { font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  footer.foot { padding: 4px 16px 16px; color: var(--muted); font-size: 12px; }
+  footer.foot code { font-family: var(--mono); }
+
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 90vw; padding: 10px 14px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 10; }
+
+  @media (max-width: 899px) {
+    .grid { grid-template-columns: 1fr; grid-template-areas: "transcript" "tools" "latency" "state"; padding: 0 10px 10px; }
+    .top, .controls { padding-left: 10px; padding-right: 10px; }
+    details.demo { margin: 0 10px 10px; }
+    .transcript .scroll { max-height: 48vh; }
+    .status { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><strong>Hemma</strong><span>voice support demo</span></div>
+  <div class="status">
+    <span id="wsStatus" class="pill warn">connecting</span>
+    <span id="chaosStatus" class="pill chaos" title="Chaos toggles active on the server (from the ?fail= query)" hidden></span>
+    <span id="micStatus" class="pill">mic off</span>
+    <span id="speakStatus" class="pill">agent idle</span>
+    <span id="audioInfo" class="muted"></span>
+  </div>
+</header>
+
+<section class="controls">
+  <button id="btnStart" class="primary" type="button">Start mic</button>
+  <button id="btnStop" type="button" disabled>Stop</button>
+  <button id="btnReset" type="button">Reset session</button>
+  <div class="meter" title="mic level"><div id="micLevel"></div></div>
+  <form id="textForm" class="text" autocomplete="off">
+    <input id="textInput" type="text" placeholder="Type instead of speaking, Enter sends" aria-label="Message">
+    <button id="btnSend" type="submit">Send</button>
+  </form>
+</section>
+
+<details class="demo">
+  <summary>Demo script (8 steps)</summary>
+  <ol>
+    <li><b>Asks about most recent order.</b> Say <q>Hi, this is Anna Weber, my phone number is +49 30 1234567. Can you tell me about my most recent order?</q>
+      <small>Watch: find_customer, then get_order HM-1042. State shows Anna Weber (vip), orders HM-1042 processing and HM-0977 delivered, active order HM-1042.</small></li>
+    <li><b>Interrupts the agent.</b> Start talking while the agent is still reading the order back (voice), or send the next line while it is still answering (text).
+      <small>Watch: clear_audio arrives, playback stops at once, the cut agent line is struck through and marked (interrupted), the latency row for that turn is marked cut.</small></li>
+    <li><b>Switches to a damaged item from an earlier order.</b> Say <q>Actually, wait. I have a problem with a lamp from an earlier order, it arrived damaged.</q>
+      <small>Watch: get_order HM-0977, then check_resolution_options with issue damaged. Active order becomes HM-0977.</small></li>
+    <li><b>Agent determines resolution or escalation.</b> The lamp is EUR 240, above the 200 limit, so the playbook flags escalation. If the agent asks whether to open a case, say <q>Yes please, go ahead with that.</q>
+      <small>Watch: apply_resolution is blocked with an escalate-instead reason if the model tries it, escalate_case returns a case id, Cases goes to 1 and the agent reads the id to you.</small></li>
+    <li><b>Returns to the original order and asks for Friday.</b> Say <q>Ok. Back to the sofa cover order. Can you move the delivery to Friday?</q>
+      <small>Watch: get_order HM-1042 (or straight to get_delivery_slots). HM-1042 is still processing so it can be moved. Friday is 4 September 2026 (Sunday 6 September is skipped in the slot list).</small></li>
+    <li><b>Valid slots and choice captured.</b> The agent offers Friday 4 September, 09-13 or 13-18, from get_delivery_slots. Say <q>The morning slot on Friday please.</q>
+      <small>Watch: Pending in the state panel shows reschedule HM-1042, date 2026-09-04, window 09-13. If the model tries apply_resolution now it shows NEEDS_CONFIRMATION or a blocked row; the ledger stays empty.</small></li>
+    <li><b>Confirmation asked.</b> The agent asks one question: shall I move it to Friday 4 September, 09-13? Nothing has been applied yet.
+      <small>Watch: Applied is still 0. A reply with a question mark or a no/wait/not in it can never pass the guard.</small></li>
+    <li><b>Executed exactly once.</b> Say <q>Yes, confirm.</q>
+      <small>Watch: apply_resolution ends with APPLIED and a receipt. The receipt id appears in green in the state panel, Applied goes to 1, Pending clears.</small></li>
+    <li class="sub"><b>Retry shows ALREADY_APPLIED.</b> Say <q>Yes, confirm.</q> again, or <q>Book that Friday morning slot again, just to be sure.</q>
+      <small>Watch: apply_resolution is blocked (or ends) with ALREADY_APPLIED and the same receipt. Applied stays 1, the receipt id does not change.</small></li>
+  </ol>
+  <p>Other paths, after Reset session: Jonas Berg (HM-2305, standard tier), order HM-1010 is 4 days late, EUR 15 compensation after a yes, and no slots because it already shipped; the ceramic vase set from HM-1031 arrived broken, stock is 0 so the only option is a EUR 45 refund. Start the server with FAIL_TOOL=apply_resolution to show the failure path: the agent apologises and offers to escalate.</p>
+</details>
+
+<main class="grid">
+  <section class="panel transcript">
+    <h2>Transcript</h2>
+    <div id="transcript" class="scroll"></div>
+  </section>
+  <section class="panel tools">
+    <h2>Tool calls</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Turn</th><th>Tool</th><th>Phase</th><th>ms</th><th>Args</th><th>Note</th></tr></thead>
+        <tbody id="toolsBody"></tbody>
+      </table>
+      <div id="toolsEmpty" class="empty">No tool calls yet.</div>
+    </div>
+  </section>
+  <section class="panel latency">
+    <h2>Latency per turn (ms)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Turn</th><th>STT final</th><th>First token</th><th>First audio</th><th>Played</th><th>Tool ms</th><th>Total</th><th>TTS</th></tr></thead>
+        <tbody id="latencyBody"></tbody>
+        <tfoot id="latencyFoot" hidden></tfoot>
+      </table>
+      <div id="latencyEmpty" class="empty">No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).</div>
+    </div>
+  </section>
+  <section class="panel state">
+    <h2>Session state</h2>
+    <div id="stateSummary" class="summary"></div>
+    <div id="receipts" class="receipts" hidden></div>
+    <pre id="state" class="scroll">{}</pre>
+  </section>
+</main>
+
+<footer class="foot">Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge next to the connection status lists what is active.</footer>
+
+<div id="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
