@@ -196,6 +196,30 @@ function originAllowed(req: http.IncomingMessage): boolean {
 const sessions = new Set<VoiceSession>();
 const wss = new WebSocketServer({ noServer: true, maxPayload: WS_MAX_PAYLOAD_BYTES });
 
+/**
+ * Keep the socket open through idle stretches. A caller can sit and think for a minute, and
+ * proxies in front of the app close a connection with no frames on it; the page then shows
+ * "connection lost" in the middle of a call. A ping every 25 seconds is enough, and a client
+ * that misses two in a row is gone for real and gets terminated rather than leaking a session.
+ */
+const WS_PING_MS = 25_000;
+const alive = new WeakMap<import("ws").WebSocket, boolean>();
+const wsHeartbeat = setInterval(() => {
+  for (const client of wss.clients) {
+    if (alive.get(client) === false) {
+      client.terminate();
+      continue;
+    }
+    alive.set(client, false);
+    try {
+      client.ping();
+    } catch {
+      /* the close handler cleans up */
+    }
+  }
+}, WS_PING_MS);
+wsHeartbeat.unref();
+
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (url.pathname !== "/ws") {
@@ -214,6 +238,8 @@ server.on("upgrade", (req, socket, head) => {
   // Session language (?lang=en|tr, default en); a {type:"lang"} message can switch it later.
   const lang = parseLang(url.searchParams.get("lang")) ?? DEFAULT_LANG;
   wss.handleUpgrade(req, socket, head, (ws) => {
+    alive.set(ws, true);
+    ws.on("pong", () => alive.set(ws, true));
     const vs = new VoiceSession(ws, {
       deepgramKey: voice.deepgramKey,
       elevenLabsKey: voice.elevenLabsKey,
