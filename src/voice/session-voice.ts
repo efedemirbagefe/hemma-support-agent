@@ -1161,8 +1161,22 @@ export class VoiceSession {
    */
   private bargeInArmed = false;
 
+  /**
+   * Without headphones the microphone hears the assistant, Deepgram transcribes it, and those are
+   * real words, so requiring words is not enough on its own. Two guards close the gap. The
+   * greeting is never interruptible: it is three seconds, it is the first thing anyone hears, and
+   * losing it to the room reads as broken. And on every other turn nothing can cut the answer in
+   * its first second of audio, which is where the echo of its own opening words lands; a person
+   * interrupting has heard enough to object by then.
+   */
+  private static readonly BARGE_IN_GRACE_MS = 1200;
+
   private confirmBargeIn(): void {
     if (!this.bargeInArmed) return;
+    const turn = this.turn;
+    if (turn && turn.latency.source === "greet") return;
+    const audioStart = turn?.latency.playedAt ?? turn?.latency.firstAudioAt;
+    if (audioStart !== undefined && Date.now() - audioStart < VoiceSession.BARGE_IN_GRACE_MS) return;
     this.bargeInArmed = false;
     this.cutForBargeIn();
   }

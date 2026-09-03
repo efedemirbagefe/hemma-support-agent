@@ -1490,7 +1490,7 @@ test("session: the greeting is the first assistant message pi sends to the model
   vs.close();
 });
 
-test("session: a barge-in during the greeting cuts the audio and does not re-answer anything", async () => {
+test("session: the greeting is never cut, because without headphones the room hears the assistant back", async () => {
   const { factory, calls } = fakeAgentFactory(async () => {});
   const ws = new FakeClientWs();
   const vs = new VoiceSession(ws as unknown as WebSocket, {
@@ -1507,10 +1507,10 @@ test("session: a barge-in during the greeting cuts the audio and does not re-ans
   await sleep(300);
   assert.ok(ws.audioBytes > 0);
   assert.equal(ws.ofType("clear_audio").length, 0);
-  dg.speechStarted(); // the customer starts talking over the greeting (6 s of mock audio are still playing)
-  dg.interim("hi there"); // words confirm it; sound alone would be the assistant's own echo
+  dg.speechStarted(); // the room, or the assistant's own voice coming back through the mic
+  dg.interim("hi there"); // even real words do not cut the greeting: it is three seconds long
   await sleep(300);
-  assert.equal(ws.ofType("clear_audio").length, 1, "playback cut");
+  assert.equal(ws.ofType("clear_audio").length, 0, "the greeting plays to the end");
   assert.deepEqual(calls, [], "nothing is re-answered: a greeting has no question to repeat");
   vs.close();
 });
