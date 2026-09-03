@@ -179,6 +179,21 @@
   .demo li code { color: var(--accent); flex: none; }
   .demo .alt { margin: 0; font-size: 12px; color: var(--muted); }
 
+  /* Barge-in switch. Off is a demo control: it shows interruption is a deliberate switch on the
+     speech-started signal rather than a side effect of the pipeline. */
+  .bargeRow { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .bargeRow input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+  .bargeRow:hover { color: var(--ink); }
+
+  /* Second entry point to the hood panel, right under the sample phrases: the header button
+     is easy to miss and this panel is the thing a technical reviewer wants open. */
+  .hoodInline { display: flex; align-items: center; gap: 8px; width: 100%; margin: 10px 0 0; padding: 10px 12px; background: var(--surface); color: var(--ink); border: 1px dashed var(--line); border-radius: var(--radius); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .hoodInline:hover { border-color: var(--accent); color: var(--accent); }
+  .hoodInline:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .hoodInline .chev { display: inline-block; transition: transform .15s ease; color: var(--muted); }
+  .hoodInline[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .hoodInline .chev { transition: none; } }
+
   /* ------------------------------------------------------------------ hood */
   .hood { margin-top: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; font-size: 13px; }
   .hoodHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 12px; }
@@ -330,6 +345,12 @@
       <span id="phrasesLabel" class="phrasesLabel" data-i18n="phrases.label">Try saying</span>
       <div id="phrases" class="phrases"></div>
     </div>
+    <label class="bargeRow"><input id="chkBarge" type="checkbox" checked><span data-i18n="barge.label">Let me interrupt the assistant</span></label>
+    <button id="btnHood2" type="button" class="hoodInline" aria-expanded="false" aria-controls="hood">
+      <span class="chev" aria-hidden="true">&#9656;</span>
+      <span data-i18n="hood.inline">Under the hood: tool calls, session state and latency, live</span>
+      <span id="hoodDot2" class="dot" hidden></span>
+    </button>
     <div id="composer" class="composer" hidden>
       <div class="live">
         <div class="micWrap">

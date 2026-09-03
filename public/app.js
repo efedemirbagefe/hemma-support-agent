@@ -36,6 +36,9 @@
     btnReset: $("btnReset"),
     btnSend: $("btnSend"),
     btnHood: $("btnHood"),
+    btnHood2: $("btnHood2"),
+    chkBarge: $("chkBarge"),
+    hoodDot2: $("hoodDot2"),
     hood: $("hood"),
     modelBanner: $("modelBanner"),
     ttsNote: $("ttsNote"),
@@ -95,6 +98,8 @@
       "composer.send": "Send",
       "composer.reset": "Start over",
       "hood.toggle": "Under the hood",
+      "hood.inline": "Under the hood: tool calls, session state and latency, live",
+      "barge.label": "Let me interrupt the assistant",
       "conn.connecting": "connecting",
       "conn.connected": "connected",
       "conn.voiceReady": "voice ready",
@@ -207,6 +212,8 @@
       "composer.send": "Gönder",
       "composer.reset": "Baştan başla",
       "hood.toggle": "Perde arkası",
+      "hood.inline": "Perde arkası: tool çağrıları, oturum durumu ve gecikme, canlı",
+      "barge.label": "Asistanın sözünü kesebilirim",
       "conn.connecting": "bağlanıyor",
       "conn.connected": "bağlandı",
       "conn.voiceReady": "ses hazır",
@@ -931,6 +938,7 @@
   function setHood(open, persist) {
     els.hood.hidden = !open;
     els.btnHood.setAttribute("aria-expanded", open ? "true" : "false");
+    if (els.btnHood2) els.btnHood2.setAttribute("aria-expanded", open ? "true" : "false");
     if (persist) {
       try { localStorage.setItem(HOOD_KEY, open ? "1" : "0"); } catch {}
     }
@@ -1555,6 +1563,7 @@
     if (!list.length) {
       if (el) { el.hidden = true; el.textContent = ""; }
       if (els.hoodDot) els.hoodDot.hidden = true;
+      if (els.hoodDot2) els.hoodDot2.hidden = true;
       els.btnHood.title = "";
       if (prev.length) logLine("Chaos off.");
       return;
@@ -1566,6 +1575,7 @@
       el.hidden = false;
     }
     if (els.hoodDot) els.hoodDot.hidden = false;
+    if (els.hoodDot2) els.hoodDot2.hidden = false;
     els.btnHood.title = text + " (from the ?fail= query)";
     if (list.join(",") !== prev.join(",")) logLine("Chaos on: " + list.join(", ") + " will fail on purpose (from the ?fail= query).");
   }
@@ -1955,6 +1965,14 @@
     }
   });
   els.btnHood.addEventListener("click", () => setHood(els.hood.hidden, true));
+  if (els.btnHood2) els.btnHood2.addEventListener("click", () => setHood(els.hood.hidden, true));
+  if (els.chkBarge) {
+    els.chkBarge.addEventListener("change", () => {
+      const enabled = !!els.chkBarge.checked;
+      sendJson({ type: "barge_in", enabled });
+      logLine(enabled ? "barge-in on" : "barge-in off");
+    });
+  }
   window.addEventListener("beforeunload", () => {
     if (state.ws) { state.ws.onclose = null; state.ws.close(); }
   });

@@ -104,7 +104,13 @@ export type ClientMessage =
   | { type: "caps"; browserTts: boolean; voices?: string[] }
   /** The utterance for one sentence started / finished playing on the browser tts tier. */
   | { type: "speak_start"; turnId: string; seq: number; t?: number }
-  | { type: "speak_done"; turnId: string; seq: number; t?: number };
+  | { type: "speak_done"; turnId: string; seq: number; t?: number }
+  /**
+   * Turn interruption on or off for the rest of the session. On by default. Off is a demo
+   * control: it shows that barge-in is a deliberate switch on the speech-started signal, not a
+   * side effect of the pipeline, and it lets someone hear a full answer without cutting it.
+   */
+  | { type: "barge_in"; enabled: boolean };
 
 export type { SessionSnapshot };
 
@@ -439,6 +445,12 @@ export class VoiceSession {
       return;
     }
     switch (msg?.type) {
+      case "barge_in": {
+        this.bargeInEnabled = msg.enabled !== false;
+        this.log(`barge-in ${this.bargeInEnabled ? "on" : "off"}`);
+        this.send({ type: "state", session: snapshotSession(this.session) });
+        return;
+      }
       case "text": {
         const text = typeof msg.text === "string" ? msg.text.trim() : "";
         if (!text) return;
@@ -1135,7 +1147,11 @@ export class VoiceSession {
 
   // ---------------------------------------------------------------- barge-in / resume / reset / close
 
+  /** Barge-in switch. On by default; the client can turn it off for a demo. */
+  private bargeInEnabled = true;
+
   private onSpeechStarted(): void {
+    if (!this.bargeInEnabled) return;
     const turn = this.turn;
     const generating = !!this.support?.isBusy();
     const speaking = !!turn && this.isStillPlaying(turn);

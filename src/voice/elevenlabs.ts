@@ -21,7 +21,14 @@ export type { TtsStream, TtsStreamEvents } from "./tts";
  * VOICE_ID / ELEVENLABS_VOICE_ID override it.
  */
 export const DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
-export const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
+/**
+ * Measured 2026-09-03 on one full sentence through the streaming socket: flash_v2_5 first audio
+ * 474 ms, turbo_v2_5 577 ms, multilingual_v2 840 ms. Turbo costs about 100 ms more than flash for
+ * noticeably better prosody at the same credit rate, so a support line that has to sound human
+ * takes that trade. Multilingual is the most natural of the three and was rejected: it doubles the
+ * credit cost per character and adds a third of a second before the caller hears anything.
+ */
+export const ELEVENLABS_MODEL_ID = "eleven_turbo_v2_5";
 /**
  * Seconds ElevenLabs keeps the socket open with no text (their default is 20, max 180). The
  * stream is opened at t0 and a turn with tool calls can stay silent for a while, so use the max.
@@ -35,7 +42,12 @@ export interface TtsVoiceSettings {
   speed?: number;
 }
 
-const DEFAULT_VOICE_SETTINGS: TtsVoiceSettings = { stability: 0.5, similarity_boost: 0.8, use_speaker_boost: false };
+/**
+ * Slightly lower stability than the vendor default reads as less flat on a support line, and
+ * speaker boost keeps it clear at 16 kHz telephone-grade output. Higher stability sounded
+ * monotone on the greeting, which is the first thing anyone hears.
+ */
+const DEFAULT_VOICE_SETTINGS: TtsVoiceSettings = { stability: 0.45, similarity_boost: 0.75, use_speaker_boost: true };
 
 /**
  * Stream URL for the voice. For Turkish the language is enforced with `language_code=tr`

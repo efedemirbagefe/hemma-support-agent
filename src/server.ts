@@ -248,7 +248,7 @@ server.listen(PORT, () => {
     log(`elevenlabs voice ${voice.voiceId ?? DEFAULT_VOICE_ID} (${source})`);
     log(
       voice.deepgramKey
-        ? `tts: elevenlabs flash v2.5 primary, deepgram ${resolvedAuraModel} fallback, browser tts tier last resort`
+        ? `tts: elevenlabs primary, deepgram ${resolvedAuraModel} fallback, browser tts tier last resort`
         : "tts: elevenlabs primary (no DEEPGRAM_API_KEY, so no Aura fallback), browser tts tier last resort",
     );
   }
@@ -257,7 +257,7 @@ server.listen(PORT, () => {
     log(`aura voice ${resolvedAuraModel} (${auraSource})`);
   }
   if (voice.deepgramKey && voice.elevenLabsKey) {
-    log(`voice ON (deepgram ${describeSttModel("en")} for en, ${describeSttModel("tr")} for tr; elevenlabs flash v2.5 both, aura en only, browser tts tier for the rest)`);
+    log(`voice ON (deepgram ${describeSttModel("en")} for en, ${describeSttModel("tr")} for tr; elevenlabs both languages, aura en only, browser tts tier for the rest)`);
   }
   if (voice.modelId) log(`model override: ${voice.modelId}`);
   if (extraOrigins.size > 0) log(`extra ws origins: ${[...extraOrigins].join(", ")}`);
