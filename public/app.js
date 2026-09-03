@@ -1616,6 +1616,9 @@
     }
     state.browserTts.supported = supported;
     sendJson({ type: "caps", browserTts: supported, voices: voiceNames });
+    // The barge-in box sits on the first screen, so someone in a noisy room can turn it off
+    // before the call starts. The socket did not exist then, so send that choice now.
+    if (els.chkBarge && !els.chkBarge.checked) sendJson({ type: "barge_in", enabled: false });
     logLine("Capabilities sent: browserTts=" + supported + (voiceNames.length ? " (" + voiceNames.length + " voice(s))" : ""));
     if (!supported) {
       // Only worth a note if there is nothing else that could speak either; a vendor engine

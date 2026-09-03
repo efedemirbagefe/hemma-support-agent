@@ -79,6 +79,11 @@
   .hero { grid-area: hero; padding: 40px 0 22px; }
   .call { grid-area: call; }
   .demo { grid-area: aside; margin-top: 40px; position: sticky; top: 74px; }
+  /* The sticky card follows the scroll down the right column, which put it over the hood panel
+     once that was open. Sticky is worth keeping while reading the conversation, so it is dropped
+     only when the panel it would cover is visible. */
+  .layout:has(#hood:not([hidden])) .demo { position: static; }
+  .hood { position: relative; z-index: 1; }
   .hood { grid-area: hood; }
 
   /* ------------------------------------------------------------------ hero */
