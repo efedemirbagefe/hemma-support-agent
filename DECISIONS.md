@@ -56,7 +56,7 @@ Cut on `.?!` plus whitespace, or after the last comma once the buffer passes 120
 
 ## Measured, 2026-09-03
 
-Tests: 120 total, 118 pass, 2 skipped (need live keys). Typecheck clean.
+Tests: 127 total, 125 pass, 2 skipped (need live keys). Typecheck clean.
 
 Model choice re-measured on the full eight-step demo: claude-haiku-4-5 passes in both languages, first token p50 in the 662 to 2251 ms range. claude-sonnet-4-5 was slower (first token p50 4179 ms English, 2775 ms Turkish) and failed the scenario in 3 of 4 runs. Haiku stays.
 

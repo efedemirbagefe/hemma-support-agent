@@ -5,7 +5,7 @@ One scripted call with Anna Weber, then chaos toggles, a scenario added live, th
 ## 30 minutes before
 
 - `.env`: `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `MODEL_ID=claude-haiku-4-5`, `ELEVENLABS_VOICE_ID=EXAVITQu4vr4xnSDxMaL`. Rachel returns 402 on a free workspace, and every turn would silently run on Aura.
-- `npm run typecheck` clean, `npm test` green: 120 tests, 118 pass, 2 skipped (the live-model tests, `LIVE=1`).
+- `npm run typecheck` clean, `npm test` green: 127 tests, 125 pass, 2 skipped (the live-model tests, `LIVE=1`).
 - `npm start`. The log must say `voice ON (deepgram nova-3, elevenlabs flash v2.5)`, `tts: elevenlabs flash v2.5 primary, deepgram aura-2-thalia-en fallback` and `model override: claude-haiku-4-5`.
 - `npm run demo:check`. Expect `result: PASS (0 failed, 0 warned, 1 skipped)`; the integration run took 24 s. A FAIL gets fixed first. Optional on macOS: `npx tsx scratch/voice-smoke.ts 3000`, expect `clearAudio: 1`.
 - The clock is pinned to 2026-09-03 in `src/domain/clock.ts`, today's real date. No `NOW` override.

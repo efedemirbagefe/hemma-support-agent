@@ -46,7 +46,7 @@ The assistant speaks first: a fixed greeting per language plays as soon as the c
 |---|---|
 | `npm start` | runs the server once (`tsx src/server.ts`) |
 | `npm run dev` | same, restarts on source changes |
-| `npm test` | `tsx --test tests/*.test.ts`. As of 2026-09-03: 120 tests, 118 pass, 2 skipped |
+| `npm test` | `tsx --test tests/*.test.ts`. As of 2026-09-03: 127 tests, 125 pass, 2 skipped |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run demo:check` | replays the 8-step demo call over `/ws` against a running server and grades it |
 
