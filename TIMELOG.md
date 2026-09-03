@@ -13,6 +13,6 @@ Wall-clock, Istanbul time, 2026-09-03. Timebox in the brief: 6 hours. Times come
 | 12:13 | 12:16 | Rename brand to Hemma, re-green tests | |
 | 12:16 | 13:42 | Build round 2: the four fixes, demo:check, drop-in scenario, chaos toggles, Aura fallback, p50/p95, docs from measured numbers | 9 agents, 16 review findings fixed, 100 tests, demo:check PASS against the real model |
 | 13:42 | 14:05 | Commit, push to GitHub, Render service, keys as a secret file, first live checks | Free instance, Frankfurt |
-| 14:05 | 14:35 | Customer-facing UI rebuilt (brand, demo card, chat, engineering view behind a toggle), /brief page, redeploy, demo:check and voice smoke against production | demo:check PASS on the live URL, 32 s of audio in the voice smoke |
+| 14:05 | 14:22 | Customer-facing UI rebuilt (brand, demo card, chat, engineering view behind a toggle), /brief page, redeploy, demo:check and voice smoke against production | demo:check PASS on the live URL, 32 s of audio in the voice smoke |
 
-Elapsed at 14:35: about 3 h 50 min of the 6 h box.
+Elapsed at 14:22: about 3 h 40 min of the 6 h box.
