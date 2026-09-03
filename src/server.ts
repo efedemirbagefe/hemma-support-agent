@@ -89,6 +89,7 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, 
     return;
   }
   if (rel === "/" || rel === "") rel = "/index.html";
+  if (rel === "/brief") rel = "/brief.html";
   const abs = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!abs.startsWith(PUBLIC_DIR + path.sep)) {
     sendJson(res, 403, { error: "forbidden" });

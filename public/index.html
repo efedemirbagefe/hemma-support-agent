@@ -3,224 +3,315 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hemma support demo</title>
+<meta name="color-scheme" content="light">
+<title>Hemma support</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f4f5f7;
-    --panel: #ffffff;
-    --line: #d9dde3;
-    --text: #1d2229;
-    --muted: #6b7280;
-    --user: #e8f0fe;
-    --agent: #f1f5ef;
-    --sys: #f7f3e8;
-    --ok: #1a7f37;
-    --warn: #b45309;
-    --bad: #b91c1c;
-    --info: #1d4ed8;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #14171b;
-      --panel: #1d2126;
-      --line: #313740;
-      --text: #e6e8eb;
-      --muted: #9aa3ad;
-      --user: #1f2b44;
-      --agent: #1f2c22;
-      --sys: #2b2820;
-      --ok: #3fb950;
-      --warn: #e3a33a;
-      --bad: #f06d6d;
-      --info: #6ea2ff;
-    }
+    --bg: #EEF1EC;
+    --surface: #FFFFFF;
+    --ink: #16211B;
+    --muted: #5E6B63;
+    --line: #D5DBD6;
+    --accent: #2F5D3A;
+    --accent-soft: #DDE9DF;
+    --warm: #E8B86D;
+    --danger: #B5443A;
+    --serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --sans: "IBM Plex Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius: 10px;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  button, input { font: inherit; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
-
-  .top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  .brand { font-size: 17px; }
-  .brand span { color: var(--muted); font-size: 14px; margin-left: 6px; }
-  .status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; font-size: 13px; }
-  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); white-space: nowrap; }
-  .pill.ok { border-color: var(--ok); color: var(--ok); }
-  .pill.warn { border-color: var(--warn); color: var(--warn); }
-  .pill.bad { border-color: var(--bad); color: var(--bad); }
-  .pill.info { border-color: var(--info); color: var(--info); }
-  .pill.chaos { border-color: var(--bad); background: var(--bad); color: #fff; font-weight: 600; }
+  html { color-scheme: light; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  button, input { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: .93em; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .mono { font-family: var(--mono); }
   .muted { color: var(--muted); }
 
-  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; }
-  .controls button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
-  .controls button:disabled { opacity: .5; cursor: default; }
-  .controls button.primary { background: var(--info); border-color: var(--info); color: #fff; }
-  .meter { width: 90px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
-  .meter div { height: 100%; width: 0; background: var(--ok); transition: width 80ms linear; }
-  form.text { display: flex; gap: 6px; flex: 1 1 280px; min-width: 0; }
-  form.text input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  /* ---------------------------------------------------------------- header */
+  .top { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .top .wrap { display: flex; align-items: center; gap: 12px; height: 58px; }
+  .wordmark { display: inline-flex; align-items: center; gap: 10px; font: 400 30px/1 var(--serif); color: var(--accent); text-decoration: none; }
+  .wordmark:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .wordmark .mark { width: 12px; height: 12px; background: var(--accent); display: inline-block; }
+  .topRight { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
-  details.demo { margin: 0 16px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 14px; }
-  details.demo summary { padding: 8px 12px; cursor: pointer; color: var(--muted); }
-  details.demo ol { margin: 0; padding: 4px 12px 12px 32px; }
-  details.demo li { margin: 4px 0; }
-  details.demo li b { font-weight: 600; }
-  details.demo li q { font-style: italic; }
-  details.demo li small { color: var(--muted); display: block; }
-  details.demo li.sub { list-style: none; margin-left: -18px; }
-  details.demo li.sub b::before { content: "8b. "; }
-  details.demo p { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 13px; white-space: nowrap; color: var(--muted); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #B4BDB7; flex: none; }
+  .pill.ok { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+  .pill.ok::before { background: var(--accent); }
+  .pill.bad { color: var(--danger); }
+  .pill.bad::before { background: var(--danger); animation: blink 1s infinite; }
+  .pill.chaos { border-color: var(--danger); background: var(--danger); color: #fff; font-family: var(--mono); font-size: 12px; }
+  .pill.chaos::before { display: none; }
 
-  .grid { display: grid; gap: 12px; padding: 0 16px 16px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); grid-template-areas: "transcript tools" "transcript latency" "transcript state"; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
-  .panel.transcript { grid-area: transcript; }
-  .panel.tools { grid-area: tools; }
-  .panel.latency { grid-area: latency; }
-  .panel.state { grid-area: state; }
-  .scroll { overflow: auto; }
-  .transcript .scroll { max-height: 72vh; }
-  .tools .scroll, .latency .scroll { max-height: 26vh; }
-  .state .scroll { max-height: 30vh; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-weight: 500; line-height: 1.2; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #26492E; border-color: #26492E; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--line); }
+  .btn.primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
+  .btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warm); }
+  .link { background: none; border: 0; padding: 4px 2px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+  .link:hover { color: #26492E; }
 
-  .line { padding: 6px 10px; border-radius: 6px; margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
-  .line.user { background: var(--user); }
-  .line.agent { background: var(--agent); }
-  .line.sys { background: var(--sys); color: var(--muted); font-size: 13px; }
-  .line.err { background: var(--sys); color: var(--bad); font-size: 13px; }
-  .line.interim { opacity: .65; font-style: italic; }
-  .line.interrupted { text-decoration: line-through; text-decoration-color: var(--muted); }
-  .line .who { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: block; }
-  .chip { display: inline-block; font: 11px/1.4 var(--mono); padding: 0 6px; margin: 2px 4px 0 0; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
-  .chip.blocked { color: var(--warn); border-color: var(--warn); }
-  .chip.error { color: var(--bad); border-color: var(--bad); }
+  /* ------------------------------------------------------------------ hero */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 32px; align-items: start; padding: 40px 0 26px; }
+  .hero h1 { font: 400 46px/1.08 var(--serif); margin: 0 0 12px; letter-spacing: -.005em; }
+  .hero .lead { margin: 0; font-size: 17px; color: var(--muted); max-width: 44ch; }
+  .demo { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .demo h2 { margin: 0 0 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+  .demo dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px 16px; margin: 0 0 12px; }
+  .demo dt { font-size: 12px; color: var(--muted); }
+  .demo dd { margin: 0; font-weight: 500; }
+  .demo ul { margin: 0 0 12px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+  .demo li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; }
+  .demo li code { color: var(--accent); flex: none; }
+  .demo .try { margin: 0 0 10px; padding: 10px 12px; background: var(--accent-soft); border-radius: 8px; }
+  .demo .alt { margin: 0; font-size: 13px; color: var(--muted); }
 
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  /* ------------------------------------------------------------------ chat */
+  .chat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--danger); background: rgba(181, 68, 58, .07); color: var(--danger); font-weight: 500; }
+  .note { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .flow { min-height: 260px; max-height: 56vh; overflow-y: auto; padding: 4px 4px 8px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+  .flow:empty { justify-content: center; align-items: center; }
+  .flow:empty::before { content: "Say hello, or type a message. The assistant will ask for your customer number or phone number."; color: var(--muted); text-align: center; max-width: 34ch; }
+  .msg { display: flex; flex-direction: column; max-width: 78%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; }
+  .bubble { padding: 10px 14px; border-radius: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+  .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.user.interim .bubble { background: var(--accent-soft); color: var(--muted); font-style: italic; }
+  .msg.assistant .bubble { background: var(--bg); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .bubble.empty { display: none; }
+  .msg.interrupted .bubble { opacity: .7; }
+  .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 4px; border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+  .activity { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .activity:empty { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 2px 9px 2px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .chip.running::before { animation: blink 1s infinite; }
+  .chip.blocked::before { background: var(--warm); }
+  .chip.error { color: var(--danger); border-color: var(--danger); }
+  .chip.error::before { background: var(--danger); }
+  .chip .state { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+  .sysnote { align-self: center; font-size: 13px; color: var(--muted); text-align: center; max-width: 60ch; }
+  .sysnote.err { color: var(--danger); }
+  .speaking { font-size: 13px; color: var(--accent); margin: 8px 4px 0; display: flex; align-items: center; gap: 8px; }
+  .speaking::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: blink .9s infinite; }
+
+  .composer { display: flex; align-items: center; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .micWrap { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 104px; }
+  .mic { position: relative; width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; transition: background .15s, transform .1s; }
+  .mic:hover { transform: scale(1.04); }
+  .mic:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; transform: none; }
+  .mic.listening { background: var(--warm); color: var(--ink); }
+  .mic .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--warm); opacity: 0; pointer-events: none; transition: transform 80ms linear; }
+  .mic.listening .ring { opacity: .9; }
+  .mic.listening::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--warm); animation: pulse 1.4s ease-out infinite; }
+  .mic svg { position: relative; }
+  .micHint { font-size: 12px; color: var(--muted); text-align: center; max-width: 150px; line-height: 1.3; }
+  .text { display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; }
+  .text input { flex: 1; min-width: 0; padding: 11px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+  .text input::placeholder { color: #8A958E; }
+  .text input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* ------------------------------------------------------------------ hood */
+  .hood { margin-top: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; font-size: 13px; }
+  .hoodHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 12px; }
+  .hoodHead h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .hoodHead .info { font: 12px/1.4 var(--mono); color: var(--muted); }
+  .hood h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .col { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .scroll { overflow: auto; max-height: 320px; }
+  table { border-collapse: collapse; width: 100%; font: 12px/1.4 var(--mono); }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
-  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--panel); }
-  td.num { text-align: right; font-family: var(--mono); }
-  td.mono { font-family: var(--mono); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-  td.wrap { white-space: normal; }
-  .ph { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
-  .ph.start { color: var(--info); border-color: var(--info); }
-  .ph.end { color: var(--ok); border-color: var(--ok); }
-  .ph.blocked { color: var(--warn); border-color: var(--warn); }
-  .ph.error { color: var(--bad); border-color: var(--bad); }
+  th { color: var(--muted); font-weight: 500; font-family: var(--sans); position: sticky; top: 0; background: var(--surface); }
+  td.num { text-align: right; }
+  td.mono { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+  td.wrap { white-space: normal; min-width: 160px; }
+  .ph { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); font-family: var(--sans); }
+  .ph.start { color: var(--accent); border-color: var(--accent); }
+  .ph.end { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+  .ph.blocked { border-color: var(--warm); background: rgba(232, 184, 109, .25); }
+  .ph.error { color: var(--danger); border-color: var(--danger); }
   .est { color: var(--muted); }
   tr.cut td { color: var(--muted); }
-  tfoot td { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; }
-  tfoot td.label { color: var(--muted); font-weight: 500; }
-
+  tfoot td { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; }
+  tfoot td.label { color: var(--muted); font-weight: 500; font-family: var(--sans); }
   pre { margin: 0; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; }
   .summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .summary span { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); }
   .receipts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-  .receipt { border: 1px solid var(--ok); border-left-width: 5px; border-radius: 6px; padding: 6px 10px; background: var(--agent); }
-  .receipt .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); }
-  .receipt .id { font: 600 16px/1.3 var(--mono); color: var(--ok); word-break: break-all; }
+  .receipt { border: 1px solid var(--accent); border-left-width: 4px; border-radius: 6px; padding: 6px 10px; background: var(--accent-soft); }
+  .receipt .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); }
+  .receipt .id { font: 500 15px/1.3 var(--mono); color: var(--accent); word-break: break-all; }
   .receipt .what { font-size: 12px; color: var(--muted); }
-  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
-  footer.foot { padding: 4px 16px 16px; color: var(--muted); font-size: 12px; }
-  footer.foot code { font-family: var(--mono); }
+  .empty { color: var(--muted); padding: 6px 0; }
+  details.raw summary { cursor: pointer; color: var(--muted); }
+  details.raw pre { margin-top: 6px; max-height: 260px; }
+  .log { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .log ol { list-style: none; margin: 0; padding: 0; max-height: 160px; font: 12px/1.5 var(--mono); }
+  .log li { display: flex; gap: 10px; border-bottom: 1px solid var(--line); padding: 2px 0; word-break: break-word; }
+  .log li .t { color: var(--muted); flex: none; }
+  .chaosHelp { margin: 12px 0 0; color: var(--muted); }
 
-  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 90vw; padding: 10px 14px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 10; }
+  .foot { padding: 28px 20px 44px; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 20px; justify-content: space-between; }
+  .foot p { margin: 0; }
 
-  @media (max-width: 899px) {
-    .grid { grid-template-columns: 1fr; grid-template-areas: "transcript" "tools" "latency" "state"; padding: 0 10px 10px; }
-    .top, .controls { padding-left: 10px; padding-right: 10px; }
-    details.demo { margin: 0 10px 10px; }
-    .transcript .scroll { max-height: 48vh; }
-    .status { margin-left: 0; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: 90vw; padding: 10px 14px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 14px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); z-index: 10; }
+
+  @keyframes pulse { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(1.55); opacity: 0; } }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .flow { scroll-behavior: auto; }
+  }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; gap: 20px; padding: 28px 0 20px; }
+    .hero h1 { font-size: 36px; }
+    .cols { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 14px; }
+    .top .wrap { height: 54px; gap: 8px; }
+    .wordmark { font-size: 26px; }
+    .pill { font-size: 12px; padding: 2px 8px; }
+    .btn { padding: 7px 10px; font-size: 14px; }
+    .hero h1 { font-size: 32px; }
+    .composer { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
+    .micWrap { width: 100%; }
+    .text { flex-basis: 100%; }
+    .msg { max-width: 92%; }
+    .flow { max-height: 50vh; min-height: 200px; }
+    .foot { padding: 22px 14px 36px; }
   }
 </style>
 </head>
 <body>
 <header class="top">
-  <div class="brand"><strong>Hemma</strong><span>voice support demo</span></div>
-  <div class="status">
-    <span id="wsStatus" class="pill warn">connecting</span>
-    <span id="chaosStatus" class="pill chaos" title="Chaos toggles active on the server (from the ?fail= query)" hidden></span>
-    <span id="micStatus" class="pill">mic off</span>
-    <span id="speakStatus" class="pill">agent idle</span>
-    <span id="audioInfo" class="muted"></span>
+  <div class="wrap">
+    <a class="wordmark" href="/"><span class="mark" aria-hidden="true"></span>Hemma</a>
+    <div class="topRight">
+      <span id="connStatus" class="pill" role="status" aria-live="polite">connecting</span>
+      <button id="btnHood" type="button" class="btn" aria-expanded="false" aria-controls="hood">Under the hood<span id="hoodDot" class="dot" hidden></span></button>
+    </div>
   </div>
 </header>
 
-<section class="controls">
-  <button id="btnStart" class="primary" type="button">Start mic</button>
-  <button id="btnStop" type="button" disabled>Stop</button>
-  <button id="btnReset" type="button">Reset session</button>
-  <div class="meter" title="mic level"><div id="micLevel"></div></div>
-  <form id="textForm" class="text" autocomplete="off">
-    <input id="textInput" type="text" placeholder="Type instead of speaking, Enter sends" aria-label="Message">
-    <button id="btnSend" type="submit">Send</button>
-  </form>
-</section>
-
-<details class="demo">
-  <summary>Demo script (8 steps)</summary>
-  <ol>
-    <li><b>Asks about most recent order.</b> Say <q>Hi, this is Anna Weber, my customer number is HM-2201. What's happening with my most recent order?</q>
-      <small>Watch: find_customer (get_order HM-1042 may follow). State shows Anna Weber (vip), orders HM-1042 processing and HM-0977 delivered, active order HM-1042.</small></li>
-    <li><b>Interrupts the agent.</b> Start talking while the agent is still reading the order back (voice), or send the next line while it is still answering (text). Say <q>Sorry to interrupt. Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</q>
-      <small>Watch: clear_audio arrives, playback stops at once, the cut agent line is struck through and marked (interrupted), the latency row for that turn is marked cut.</small></li>
-    <li><b>Switches to a damaged item from an earlier order.</b> The line above already carries the switch; if you did not interrupt, say <q>Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</q>
-      <small>Watch: get_order HM-0977, then check_resolution_options with issue damaged. Active order becomes HM-0977.</small></li>
-    <li><b>Agent determines resolution or escalation.</b> The lamp is EUR 240, above the 200 limit, so the playbook flags escalation. If the agent asks whether to open a case, say <q>Yes please, go ahead with that.</q>
-      <small>Watch: apply_resolution is blocked with an escalate-instead reason if the model tries it, escalate_case returns a case id, Cases goes to 1 and the agent reads the id to you.</small></li>
-    <li><b>Returns to the original order and asks for Friday.</b> Say <q>Thanks. Now back to the sofa cover. Can you move the delivery to Friday?</q>
-      <small>Watch: get_order HM-1042 (or straight to get_delivery_slots). HM-1042 is still processing so it can be moved. Friday is 4 September 2026 (Sunday 6 September is skipped in the slot list).</small></li>
-    <li><b>Valid slots and choice captured.</b> The agent offers Friday 4 September, 09-13 or 13-18, from get_delivery_slots. Say <q>The morning slot on Friday, please.</q>
-      <small>Watch: Pending in the state panel shows reschedule HM-1042, date 2026-09-04, window 09-13. If the model tries apply_resolution now it shows NEEDS_CONFIRMATION or a blocked row; the ledger stays empty.</small></li>
-    <li><b>Confirmation asked.</b> The agent asks one question: shall I move it to Friday 4 September, 09-13? Nothing has been applied yet.
-      <small>Watch: Applied is still 0. A reply with a question mark or a no/wait/not in it can never pass the guard.</small></li>
-    <li><b>Executed exactly once.</b> Say <q>Yes, go ahead.</q>
-      <small>Watch: apply_resolution ends with APPLIED and a receipt. The receipt id appears in green in the state panel, Applied goes to 1, Pending clears.</small></li>
-    <li class="sub"><b>Retry shows ALREADY_APPLIED.</b> Say <q>Sorry, did that go through? Book Friday morning again just to be safe.</q>
-      <small>Watch: apply_resolution is blocked (or ends) with ALREADY_APPLIED and the same receipt. Applied stays 1, the receipt id does not change.</small></li>
-  </ol>
-  <p>Other paths, after Reset session: Jonas Berg (HM-2305, standard tier), order HM-1010 is 4 days late, EUR 15 compensation after a yes, and no slots because it already shipped; the ceramic vase set from HM-1031 arrived broken, stock is 0 so the only option is a EUR 45 refund. Start the server with FAIL_TOOL=apply_resolution to show the failure path: the agent apologises and offers to escalate.</p>
-</details>
-
-<main class="grid">
-  <section class="panel transcript">
-    <h2>Transcript</h2>
-    <div id="transcript" class="scroll"></div>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>Customer support you can talk to.</h1>
+      <p class="lead">Ask about an existing order: delivery dates, damaged items, late parcels. Speak or type, the assistant checks your order and applies what you confirm.</p>
+    </div>
+    <aside class="demo" aria-labelledby="demoTitle">
+      <h2 id="demoTitle">Try it with the demo customer</h2>
+      <dl>
+        <div><dt>Name</dt><dd>Anna Weber</dd></div>
+        <div><dt>Customer number</dt><dd><code>HM-2201</code></dd></div>
+        <div><dt>Phone</dt><dd><code>+49 30 1234567</code></dd></div>
+      </dl>
+      <ul>
+        <li><code>HM-1042</code><span>Linen sofa cover, EUR 89, arriving Tuesday 8 September</span></li>
+        <li><code>HM-0977</code><span>Arc floor lamp, EUR 240, delivered 28 August</span></li>
+      </ul>
+      <p class="try">Try: ask about your latest order, then say the lamp arrived damaged, then move the sofa cover to Friday.</p>
+      <p class="alt">Second customer: Jonas Berg, <code>HM-2305</code>, order <code>HM-1010</code> is four days late.</p>
+    </aside>
   </section>
-  <section class="panel tools">
-    <h2>Tool calls</h2>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Turn</th><th>Tool</th><th>Phase</th><th>ms</th><th>Args</th><th>Note</th></tr></thead>
-        <tbody id="toolsBody"></tbody>
-      </table>
-      <div id="toolsEmpty" class="empty">No tool calls yet.</div>
+
+  <section class="chat" aria-label="Conversation">
+    <div id="modelBanner" class="banner" role="alert" hidden>The assistant is offline on this deployment: the model key is not configured.</div>
+    <div id="ttsNote" class="note" hidden>Replies are text only on this deployment</div>
+    <div id="transcript" class="flow"></div>
+    <div id="speakStatus" class="speaking" hidden>Assistant is speaking</div>
+    <div class="composer">
+      <div class="micWrap">
+        <button id="btnMic" type="button" class="mic" aria-label="Start voice input" aria-pressed="false">
+          <span id="micLevel" class="ring" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+            <path d="M5 11a7 7 0 0 0 14 0"></path>
+            <path d="M12 18v3"></path>
+          </svg>
+        </button>
+        <span id="micHint" class="micHint">Tap to talk</span>
+      </div>
+      <form id="textForm" class="text" autocomplete="off">
+        <input id="textInput" type="text" placeholder="Type a message" aria-label="Message" maxlength="2000" enterkeyhint="send">
+        <button id="btnSend" type="submit" class="btn primary" disabled>Send</button>
+      </form>
+      <button id="btnReset" type="button" class="link">Start over</button>
     </div>
   </section>
-  <section class="panel latency">
-    <h2>Latency per turn (ms)</h2>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Turn</th><th>STT final</th><th>First token</th><th>First audio</th><th>Played</th><th>Tool ms</th><th>Total</th><th>TTS</th></tr></thead>
-        <tbody id="latencyBody"></tbody>
-        <tfoot id="latencyFoot" hidden></tfoot>
-      </table>
-      <div id="latencyEmpty" class="empty">No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).</div>
+
+  <section id="hood" class="hood" hidden aria-labelledby="hoodTitle">
+    <div class="hoodHead">
+      <h2 id="hoodTitle">Under the hood</h2>
+      <span id="chaosStatus" class="pill chaos" title="Chaos toggles active on the server (from the ?fail= query)" hidden></span>
+      <span id="voiceInfo" class="info"></span>
+      <span id="audioInfo" class="info"></span>
     </div>
-  </section>
-  <section class="panel state">
-    <h2>Session state</h2>
-    <div id="stateSummary" class="summary"></div>
-    <div id="receipts" class="receipts" hidden></div>
-    <pre id="state" class="scroll">{}</pre>
+    <div class="cols">
+      <div class="col">
+        <h3>Tool calls</h3>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Turn</th><th>Tool</th><th>Phase</th><th>ms</th><th>Args</th><th>Note</th></tr></thead>
+            <tbody id="toolsBody"></tbody>
+          </table>
+          <div id="toolsEmpty" class="empty">No tool calls yet.</div>
+        </div>
+      </div>
+      <div class="col">
+        <h3>Session state</h3>
+        <div id="stateSummary" class="summary"></div>
+        <div id="receipts" class="receipts" hidden></div>
+        <details class="raw">
+          <summary>Raw snapshot</summary>
+          <pre id="state" class="scroll">{}</pre>
+        </details>
+      </div>
+      <div class="col">
+        <h3>Latency per turn (ms)</h3>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Turn</th><th>STT final</th><th>First token</th><th>First audio</th><th>Played</th><th>Tool ms</th><th>Total</th><th>TTS</th></tr></thead>
+            <tbody id="latencyBody"></tbody>
+            <tfoot id="latencyFoot" hidden></tfoot>
+          </table>
+          <div id="latencyEmpty" class="empty">No turns yet. Values marked ~ are measured in the browser from the end of your turn; the rest come from the server. The p50 / p95 row summarises first token, first audio, played and total over the session's turns (nearest rank; turns cut by a barge-in are left out of total).</div>
+        </div>
+      </div>
+    </div>
+    <div class="log">
+      <h3>Event log</h3>
+      <ol id="eventLog" class="scroll"></ol>
+    </div>
+    <p class="chaosHelp">Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge above lists what is active.</p>
   </section>
 </main>
 
-<footer class="foot">Chaos: add <code>?fail=tts</code> to this page's URL and reload (comma separated for several, e.g. <code>?fail=tts,stt</code>); the server makes that part fail on purpose and the red badge next to the connection status lists what is active.</footer>
+<footer class="foot wrap">
+  <p>Hemma is a fictional store built for a case study. Nothing here is a real order.</p>
+  <a href="/brief">How this was built</a>
+</footer>
 
-<div id="toast" hidden></div>
+<div id="toast" role="status" hidden></div>
 <script src="/app.js"></script>
 </body>
 </html>

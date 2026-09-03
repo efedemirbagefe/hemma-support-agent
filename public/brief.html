@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hemma support agent, how it was built</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root { --bg:#EEF1EC; --surface:#FFFFFF; --ink:#16211B; --muted:#5E6B63; --line:#D5DBD6; --accent:#2F5D3A; --accent-soft:#DDE9DF; --warm:#E8B86D; --danger:#B5443A; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif; font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  a { color:var(--accent); }
+  .wrap { max-width:900px; margin:0 auto; padding:28px 24px 72px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding-bottom:16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:10px; font-family:"Instrument Serif",Georgia,serif; font-size:30px; color:var(--accent); text-decoration:none; }
+  .brand::before { content:""; width:12px; height:12px; background:var(--accent); display:inline-block; }
+  .links a { margin-left:16px; font-size:14px; }
+  h1 { font-family:"Instrument Serif",Georgia,serif; font-weight:400; font-size:44px; line-height:1.05; margin:28px 0 10px; letter-spacing:-0.3px; text-wrap:balance; }
+  .lede { font-size:18px; color:var(--muted); max-width:62ch; margin:0 0 22px; }
+  h2 { font-size:13px; letter-spacing:1.6px; text-transform:uppercase; color:var(--muted); margin:36px 0 12px; font-weight:600; }
+  h3 { font-size:17px; margin:0 0 6px; font-weight:600; }
+  p { margin:0 0 12px; max-width:70ch; }
+  ul { margin:0 0 12px; padding-left:20px; max-width:72ch; }
+  li { margin-bottom:6px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .card { background:var(--surface); border:1px solid var(--line); padding:18px 20px; }
+  .card p:last-child, .card ul:last-child { margin-bottom:0; }
+  code, .mono { font-family:"IBM Plex Mono",Menlo,monospace; font-size:13.5px; }
+  code { background:var(--accent-soft); padding:1px 5px; }
+  figure { margin:0; background:var(--surface); border:1px solid var(--line); padding:14px; }
+  figure svg { width:100%; height:auto; display:block; }
+  figcaption { font-size:14px; color:var(--muted); margin-top:8px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; background:var(--surface); border:1px solid var(--line); }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  .num { font-variant-numeric:tabular-nums; }
+  .cta { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; padding:10px 16px; font-weight:600; margin:6px 10px 6px 0; }
+  .cta.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .say { font-family:"IBM Plex Mono",Menlo,monospace; font-size:13px; background:var(--accent-soft); padding:2px 6px; }
+  footer { margin-top:40px; padding-top:16px; border-top:1px solid var(--line); font-size:14px; color:var(--muted); }
+  @media (max-width:720px) { .grid2 { grid-template-columns:1fr; } h1 { font-size:34px; } .wrap { padding:20px 16px 56px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/">Hemma</a>
+    <nav class="links"><a href="/">Live demo</a><a href="https://github.com/efedemirbagefe/hemma-support-agent">Source</a><a href="https://efedemirbag.com">Efe Demirbağ</a></nav>
+  </header>
+
+  <h1>A support agent you can talk to, built on Pi in one working day.</h1>
+  <p class="lede">The case study asked for a small customer-support agent for an ecommerce brand, using Pi as the agent harness, with real-time voice. This page is what I built, how I decided, and how to try it. Written by Efe Demirbağ, 3 September 2026.</p>
+  <a class="cta" href="/">Open the live demo</a>
+  <a class="cta ghost" href="https://github.com/efedemirbagefe/hemma-support-agent">Read the code</a>
+
+  <h2>What it is</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>The product</h3>
+      <p>Hemma is a fictional Scandinavian home-goods store. A customer opens the page, presses the microphone or types, and asks about an existing order. The assistant looks the order up, follows Hemma's support rules, asks for confirmation before it changes anything, and applies the change exactly once. Anything above the rules goes to a human as a case.</p>
+    </div>
+    <div class="card">
+      <h3>The three situations it handles</h3>
+      <ul>
+        <li>Move a delivery. Only if the order has not shipped, only to a slot the tool returned, only after a yes.</li>
+        <li>Damaged item. Replacement if stock exists, refund if not. Orders above EUR 200 go to a human.</li>
+        <li>Late delivery. VIP customers after two days, others after four. Compensation above EUR 50 goes to a human.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>How I approached it as a product</h2>
+  <p>The person on the phone has a problem and no patience for a menu. Good looks like: the assistant already knows their orders, names the right one, offers only real options, asks one clear question, and never does something twice. I set that as the bar before writing code, then cut everything that did not serve it: no telephony, no accounts, no database, no knowledge base. Two demo customers with four orders cover every rule in the brief.</p>
+  <p>The brief lists six tools. I kept their names and gave each a fixed job, so the model's only freedom is which tool to call and what to say. The support rules are not text for the model to remember. They are code the tools run.</p>
+
+  <h2>Architecture</h2>
+  <figure>
+    <svg viewBox="0 0 900 300" role="img" aria-label="Browser microphone and text go over a WebSocket to a Node server. Speech goes to Deepgram for transcription. The transcript goes to the Pi agent running Claude Haiku, which calls six mocked tools guarded by playbooks and a confirmation and idempotency gate. The reply streams sentence by sentence to ElevenLabs, with Deepgram Aura as fallback, and audio returns to the browser.">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#16211B"/></marker></defs>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="12" fill="#16211B" stroke="#16211B" stroke-width="1.1">
+        <rect x="20" y="110" width="140" height="70" fill="#fff"/><text x="90" y="138" text-anchor="middle" stroke="none" font-weight="600">Browser</text><text x="90" y="156" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">mic 16 kHz, text box,</text><text x="90" y="170" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">audio playback</text>
+        <line x1="160" y1="145" x2="218" y2="145" marker-end="url(#ar)" marker-start="url(#ar)"/><text x="189" y="134" text-anchor="middle" stroke="none" font-size="10.5" fill="#5E6B63">WebSocket</text>
+        <rect x="220" y="110" width="150" height="70" fill="#fff"/><text x="295" y="138" text-anchor="middle" stroke="none" font-weight="600">Node server</text><text x="295" y="156" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">one session per call,</text><text x="295" y="170" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">turn ids, latency clocks</text>
+        <rect x="220" y="20" width="150" height="56" fill="#fff"/><text x="295" y="44" text-anchor="middle" stroke="none" font-weight="600">Deepgram STT</text><text x="295" y="62" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">interims, speech start, end</text>
+        <line x1="295" y1="108" x2="295" y2="78" marker-end="url(#ar)" marker-start="url(#ar)"/>
+        <rect x="220" y="214" width="150" height="66" fill="#fff"/><text x="295" y="238" text-anchor="middle" stroke="none" font-weight="600">ElevenLabs TTS</text><text x="295" y="256" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">sentence by sentence;</text><text x="295" y="270" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">Deepgram Aura if it fails</text>
+        <line x1="295" y1="182" x2="295" y2="212" marker-end="url(#ar)" marker-start="url(#ar)"/>
+        <line x1="370" y1="145" x2="428" y2="145" marker-end="url(#ar)"/><text x="399" y="134" text-anchor="middle" stroke="none" font-size="10.5" fill="#5E6B63">transcript</text>
+        <rect x="430" y="100" width="170" height="90" fill="#DDE9DF"/><text x="515" y="128" text-anchor="middle" stroke="none" font-weight="600">Pi agent</text><text x="515" y="146" text-anchor="middle" stroke="none" font-size="11" fill="#16211B">Claude Haiku 4.5</text><text x="515" y="162" text-anchor="middle" stroke="none" font-size="11" fill="#16211B">streams text, calls tools,</text><text x="515" y="176" text-anchor="middle" stroke="none" font-size="11" fill="#16211B">abort() on interruption</text>
+        <line x1="600" y1="145" x2="658" y2="145" marker-end="url(#ar)" marker-start="url(#ar)"/><text x="629" y="134" text-anchor="middle" stroke="none" font-size="10.5" fill="#5E6B63">tool calls</text>
+        <rect x="660" y="20" width="220" height="60" fill="#fff"/><text x="770" y="42" text-anchor="middle" stroke="none" font-weight="600">Guard, before every tool call</text><text x="770" y="60" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">confirmation, exactly once, escalation</text>
+        <line x1="770" y1="82" x2="770" y2="98" marker-end="url(#ar)"/>
+        <rect x="660" y="100" width="220" height="90" fill="#fff"/><text x="770" y="124" text-anchor="middle" stroke="none" font-weight="600">Six tools, mock data</text><text x="770" y="142" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">find_customer, get_order, check_resolution_options,</text><text x="770" y="156" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">get_delivery_slots, apply_resolution, escalate_case</text><text x="770" y="176" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">rules live in three playbook files</text>
+        <rect x="660" y="214" width="220" height="66" fill="#fff"/><text x="770" y="238" text-anchor="middle" stroke="none" font-weight="600">Session state</text><text x="770" y="256" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">customer, active order, open proposals,</text><text x="770" y="270" text-anchor="middle" stroke="none" font-size="11" fill="#5E6B63">applied ledger, cases</text>
+        <line x1="770" y1="192" x2="770" y2="212" marker-end="url(#ar)" marker-start="url(#ar)"/>
+      </g>
+    </svg>
+    <figcaption>One WebSocket per call. Pi runs the agent loop; the voice layers feed it and read from it. The green box is the only place a model runs.</figcaption>
+  </figure>
+
+  <h2>The decisions that matter</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>Rules are code, not prompt</h3>
+      <p>Each scenario is a playbook file: which tools in which order, and a function that turns an order into the options the customer may be offered, with the EUR 200, EUR 50, two-day and four-day thresholds inside. The prompt says "offer only what the tools return". A fourth scenario is one file plus one registry line; an example is in <code>examples/scenarios</code>.</p>
+    </div>
+    <div class="card">
+      <h3>Confirmation and exactly once, enforced</h3>
+      <p><code>apply_resolution</code> is two-phase. The first call stores a proposal and returns NEEDS_CONFIRMATION. It applies only when a proposal exists and the customer's last utterance is an actual yes, checked in code with negations excluded. Every applied action is written to a ledger under a key built from order, action and parameters; a repeat returns ALREADY_APPLIED and does nothing. Pi's <code>beforeToolCall</code> hook is the gate, so the model cannot skip it.</p>
+    </div>
+    <div class="card">
+      <h3>Voice stays outside the agent</h3>
+      <p>Speech to text and text to speech are separate layers, not a speech-to-speech model, because the guard needs the transcript text before every tool call. Interruption comes from Deepgram's speech-start event, which arrives about half a second before any transcript: the agent is aborted, the audio stream is cancelled, the browser flushes its buffer. Late audio from the cancelled turn is dropped by turn id.</p>
+    </div>
+    <div class="card">
+      <h3>Measured, not guessed</h3>
+      <p>Haiku 4.5 was chosen after timing three models on the same tool turn. Every turn records four clocks: speech end, first token, first audio byte, first audio played. A scripted check replays the eight-step demo against the real model and fails the build if a tool runs out of order or an action is applied twice.</p>
+    </div>
+  </div>
+
+  <h2>Try it yourself</h2>
+  <p>Open the <a href="/">live demo</a>, put headphones on, press the microphone (or type). The demo customer is Anna Weber, customer number HM-2201, phone +49 30 1234567.</p>
+  <table>
+    <thead><tr><th>#</th><th>Say</th><th>What the assistant does</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><span class="say">Hi, this is Anna Weber, my customer number is HM-2201. What's happening with my most recent order?</span></td><td>Looks you up, names the sofa cover order and its date.</td></tr>
+      <tr><td>2</td><td>Talk over it: <span class="say">Sorry to interrupt. Actually, something else first. A lamp from an earlier order arrived damaged, the base is dented.</span></td><td>Stops speaking within half a second, switches to the lamp, checks options, opens a case because the order is EUR 240, tells you the case number.</td></tr>
+      <tr><td>3</td><td><span class="say">Thanks. Now back to the sofa cover. Can you move the delivery to Friday?</span></td><td>Fetches slots, offers Friday morning or afternoon.</td></tr>
+      <tr><td>4</td><td><span class="say">The morning slot on Friday, please.</span></td><td>Reads the change back and asks for a yes. Nothing applied yet.</td></tr>
+      <tr><td>5</td><td><span class="say">Yes, go ahead.</span></td><td>Applies it once, reads the receipt.</td></tr>
+      <tr><td>6</td><td><span class="say">Sorry, did that go through? Book Friday morning again just to be safe.</span></td><td>Says it is already done, same receipt, ledger unchanged.</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:12px">Add <code>?fail=tts</code> to the address to watch the voice fall back to a second engine, or <code>?fail=tool</code> to watch a tool fail and the assistant offer a human. "Under the hood" in the header shows tool calls, session state and latency while you talk. From a terminal: <code>npm run demo:check -- --url wss://hemma-support-agent.onrender.com/ws</code> replays the scenario and prints a pass table.</p>
+
+  <h2>Measured on 3 September 2026</h2>
+  <table>
+    <thead><tr><th>What</th><th>Number</th></tr></thead>
+    <tbody>
+      <tr><td>Model, one call, Haiku 4.5 / Sonnet 4.5 / Sonnet 4.6</td><td class="num">about 1.0 s / 1.3 s / 1.8 s</td></tr>
+      <tr><td>Voice turn: speech end to first token / first audio / turn done</td><td class="num">0.9 s / 1.4 s / 1.8 s (best), 2.5 s / 2.7 s / 3.3 s (cold first turn)</td></tr>
+      <tr><td>Interruption: customer starts speaking to audio stopped</td><td class="num">0.37 s</td></tr>
+      <tr><td>Scripted demo check, six text turns with synthesis, first token p50 / p95</td><td class="num">2.3 s / 2.9 s</td></tr>
+      <tr><td>Tests</td><td class="num">100, two need live keys</td></tr>
+      <tr><td>Time spent</td><td class="num">3 h 10 min of the 6 h box, log in TIMELOG.md</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Trade-offs and limits</h2>
+  <ul>
+    <li>State is in memory per connection. Reload the page and the ledger is gone. A real deployment would put proposals and the ledger in Postgres with the same keys.</li>
+    <li>The yes detector is a word list with negation handling, not a model. It is deliberately dumb so it can be tested; the next step is a small classifier tool with the same interface.</li>
+    <li>Haiku sometimes asks one clarifying question the prompt tells it not to ask. The guard makes this a wording problem, never a safety one.</li>
+    <li>Browser channel, no telephony, no authentication, one voice, English only. The free ElevenLabs tier cannot use library voices through the API, so the fallback engine is real insurance, not decoration.</li>
+    <li>The hosted demo runs on a free instance that sleeps after 15 minutes; the first request after that takes up to a minute.</li>
+  </ul>
+
+  <h2>How it was made</h2>
+  <p>I wrote the contract first: layout, types, the six tool signatures, the guard rules, the WebSocket protocol, the mock data. Claude Code then wrote most of the code against that contract, in parallel per area, with an adversarial review pass per area before anything was integrated. I read every review finding, ran the real model and real voice checks myself, and I am the one who answers for what is here. Full decision log in <code>DECISIONS.md</code>, product framing in <code>APPROACH.md</code>, presenter's run sheet in <code>DEMO.md</code>.</p>
+
+  <footer>Hemma is a fictional store built for a case study. Nothing here is a real order. Efe Demirbağ, <a href="https://efedemirbag.com">efedemirbag.com</a>.</footer>
+</div>
+</body>
+</html>
